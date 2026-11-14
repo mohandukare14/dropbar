@@ -34,3 +34,4 @@ if [ -f "$OUTPUT_APK" ]; then
     echo "To install on your connected P4 phone:"
     echo "   adb install $OUTPUT_APK"
 fi
+

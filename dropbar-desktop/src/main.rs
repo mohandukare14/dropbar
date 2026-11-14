@@ -79,7 +79,7 @@ window {
     transition: all 180ms ease;
 }
 
-.drop-zone:drop-hover {
+.drop-zone:hover, .drop-zone.active {
     background: rgba(0, 255, 204, 0.18);
     border-color: #00FFCC;
 }

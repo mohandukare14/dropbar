@@ -38,3 +38,4 @@ jobs:
         with:
           name: DropBar-Release-APK
           path: dropbar-mobile/build/app/outputs/flutter-apk/*.apk
+
