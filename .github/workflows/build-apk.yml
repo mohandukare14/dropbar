@@ -8,6 +8,8 @@ on:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -23,19 +25,35 @@ jobs:
           flutter-version: '3.24.5'
           channel: 'stable'
 
-      - name: Install dependencies
+      - name: Generate Android project files
         run: |
           cd dropbar-mobile
+          # Save custom AndroidManifest
+          cp android/app/src/main/AndroidManifest.xml /tmp/AndroidManifest.xml
+          # Generate modern Flutter Gradle & wrapper structure
+          flutter create . --org io.dropbar --project-name dropbar_mobile --platforms=android
+          # Restore custom manifest with permissions & intent filters
+          cp /tmp/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
           flutter pub get
 
       - name: Build Release APK
         run: |
           cd dropbar-mobile
-          flutter build apk --release --split-per-abi
+          flutter build apk --release
 
-      - name: Upload APK Artifacts
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: DropBar-Release-APK
-          path: dropbar-mobile/build/app/outputs/flutter-apk/*.apk
+          path: dropbar-mobile/build/app/outputs/flutter-apk/app-release.apk
 
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/heads/main')
+        with:
+          tag_name: v0.1.0-mobile
+          name: "DropBar Mobile v0.1.0"
+          body: "Direct download DropBar Android APK for P4 and other mobile devices."
+          files: dropbar-mobile/build/app/outputs/flutter-apk/app-release.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
