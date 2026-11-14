@@ -382,42 +382,89 @@ fn build_ui(
     window.set_child(Some(&main_box));
 
     // Connect Drop Target with Automatic Transfer
-    let drop_target = DropTarget::new(gio::File::static_type(), gdk::DragAction::COPY);
+    let drop_target = DropTarget::new(glib::types::Type::INVALID, gdk::DragAction::COPY);
+    drop_target.set_types(&[
+        gdk::FileList::static_type(),
+        gio::File::static_type(),
+        glib::types::Type::STRING,
+    ]);
+
     let state_drop = state.clone();
     let file_list_box_drop = file_list_box.clone();
     let send_btn_drop = send_btn.clone();
     let rt_drop = rt.clone();
 
     drop_target.connect_drop(move |_, value, _, _| {
-        if let Ok(file) = value.get::<gio::File>() {
+        let mut files_to_add: Vec<PathBuf> = Vec::new();
+
+        if let Ok(file_list) = value.get::<gdk::FileList>() {
+            for file in file_list.files() {
+                if let Some(path) = file.path() {
+                    files_to_add.push(path);
+                }
+            }
+        } else if let Ok(file) = value.get::<gio::File>() {
             if let Some(path) = file.path() {
-                let mut st = state_drop.borrow_mut();
-                if !st.stashed_files.contains(&path) {
-                    st.stashed_files.push(path.clone());
-                    let should_auto_beam = st.auto_beam;
-                    let target = st.selected_peer.clone();
-                    drop(st);
-
-                    refresh_file_list(&file_list_box_drop, &state_drop);
-
-                    if should_auto_beam {
-                        if let Some(target_peer) = target {
-                            trigger_beam(
-                                &send_btn_drop,
-                                &state_drop,
-                                &file_list_box_drop,
-                                &rt_drop,
-                                target_peer,
-                            );
+                files_to_add.push(path);
+            }
+        } else if let Ok(text) = value.get::<String>() {
+            for line in text.lines() {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                if trimmed.starts_with("file://") {
+                    if let Ok((path, _)) = glib::filename_from_uri(trimmed) {
+                        if path.exists() {
+                            files_to_add.push(path);
                         }
                     }
-                    return true;
+                } else {
+                    let path = PathBuf::from(trimmed);
+                    if path.exists() {
+                        files_to_add.push(path);
+                    }
                 }
             }
         }
-        false
+
+        if files_to_add.is_empty() {
+            return false;
+        }
+
+        let mut st = state_drop.borrow_mut();
+        let mut added = false;
+        for path in files_to_add {
+            if !st.stashed_files.contains(&path) {
+                st.stashed_files.push(path);
+                added = true;
+            }
+        }
+
+        if !added {
+            return false;
+        }
+
+        let should_auto_beam = st.auto_beam;
+        let target = st.selected_peer.clone();
+        drop(st);
+
+        refresh_file_list(&file_list_box_drop, &state_drop);
+
+        if should_auto_beam {
+            if let Some(target_peer) = target {
+                trigger_beam(
+                    &send_btn_drop,
+                    &state_drop,
+                    &file_list_box_drop,
+                    &rt_drop,
+                    target_peer,
+                );
+            }
+        }
+        true
     });
-    drop_box.add_controller(drop_target);
+    window.add_controller(drop_target);
 
     // Clear Button Handler
     let state_clear = state.clone();

@@ -6,7 +6,7 @@ description = "Floating drag and drop shelf and cross-device sync bar for Arch L
 
 [dependencies]
 dropbar-core = { path = "../dropbar-core" }
-gtk4 = { version = "0.9" }
+gtk4 = { version = "0.9", features = ["v4_6"] }
 glib = "0.20"
 gio = "0.20"
 notify-rust = "4.19"
