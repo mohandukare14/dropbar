@@ -362,15 +362,19 @@ fn build_ui(
     let clear_btn = Button::with_label("Clear");
     clear_btn.add_css_class("clear-btn");
 
+    let add_files_btn = Button::with_label("➕ Add Files");
+    add_files_btn.add_css_class("clear-btn");
+
+    let open_downloads_btn = Button::with_label("📂 Downloads");
+    open_downloads_btn.add_css_class("clear-btn");
+
     let send_btn = Button::with_label("🚀 Beam to Mobile");
     send_btn.add_css_class("send-btn");
     send_btn.set_sensitive(false);
     send_btn.set_hexpand(true);
 
-    let open_downloads_btn = Button::with_label("📂 Downloads");
-    open_downloads_btn.add_css_class("clear-btn");
-
     action_box.append(&clear_btn);
+    action_box.append(&add_files_btn);
     action_box.append(&open_downloads_btn);
     action_box.append(&send_btn);
 
@@ -382,12 +386,15 @@ fn build_ui(
     window.set_child(Some(&main_box));
 
     // Connect Drop Target with Automatic Transfer
-    let drop_target = DropTarget::new(glib::types::Type::INVALID, gdk::DragAction::COPY);
+    let drop_target = DropTarget::new(glib::types::Type::INVALID, gdk::DragAction::all());
     drop_target.set_types(&[
         gdk::FileList::static_type(),
         gio::File::static_type(),
         glib::types::Type::STRING,
     ]);
+
+    drop_target.connect_enter(|_, _, _| gdk::DragAction::COPY);
+    drop_target.connect_motion(|_, _, _| gdk::DragAction::COPY);
 
     let state_drop = state.clone();
     let file_list_box_drop = file_list_box.clone();
@@ -464,7 +471,65 @@ fn build_ui(
         }
         true
     });
-    window.add_controller(drop_target);
+    drop_box.add_controller(drop_target);
+
+    // Add Files Dialog Handler
+    let state_add = state.clone();
+    let file_list_box_add = file_list_box.clone();
+    let send_btn_add = send_btn.clone();
+    let rt_add = rt.clone();
+    let window_weak = window.downgrade();
+
+    add_files_btn.connect_clicked(move |_| {
+        let parent_win = window_weak.upgrade();
+        let dialog = gtk4::FileChooserNative::new(
+            Some("Select Files to Beam"),
+            parent_win.as_ref(),
+            gtk4::FileChooserAction::Open,
+            Some("Select"),
+            Some("Cancel"),
+        );
+        dialog.set_select_multiple(true);
+
+        let state_f = state_add.clone();
+        let file_box_f = file_list_box_add.clone();
+        let send_f = send_btn_add.clone();
+        let rt_f = rt_add.clone();
+
+        dialog.connect_response(move |d, resp| {
+            if resp == gtk4::ResponseType::Accept {
+                let files = d.files();
+                let mut added = false;
+                let mut st = state_f.borrow_mut();
+                for i in 0..files.n_items() {
+                    if let Some(obj) = files.item(i) {
+                        if let Ok(file) = obj.downcast::<gio::File>() {
+                            if let Some(path) = file.path() {
+                                if !st.stashed_files.contains(&path) {
+                                    st.stashed_files.push(path);
+                                    added = true;
+                                }
+                            }
+                        }
+                    }
+                }
+                let should_auto_beam = st.auto_beam;
+                let target = st.selected_peer.clone();
+                drop(st);
+
+                if added {
+                    refresh_file_list(&file_box_f, &state_f);
+                    if should_auto_beam {
+                        if let Some(target_peer) = target {
+                            trigger_beam(&send_f, &state_f, &file_box_f, &rt_f, target_peer);
+                        }
+                    }
+                }
+            }
+        });
+
+        dialog.show();
+    });
 
     // Clear Button Handler
     let state_clear = state.clone();
@@ -474,10 +539,13 @@ fn build_ui(
         refresh_file_list(&file_list_box_clear, &state_clear);
     });
 
-    // Open Downloads Handler
+    // Open Downloads Handler (prioritizes Nautilus to avoid editor interception)
     open_downloads_btn.connect_clicked(|_| {
         let path = get_default_download_dir();
-        let _ = open::that(path);
+        let _ = std::fs::create_dir_all(&path);
+        if std::process::Command::new("nautilus").arg(&path).spawn().is_err() {
+            let _ = open::that(&path);
+        }
     });
 
     // Send Button Handler
