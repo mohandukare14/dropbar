@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "dropbar-core",
+    "dropbar-desktop",
+    "dropbar-cli"
+]
+resolver = "2"
+

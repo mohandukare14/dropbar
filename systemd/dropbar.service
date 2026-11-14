@@ -1,0 +1,13 @@
+[Unit]
+Description=DropBar Peer Discovery and Receiver Daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/dropbar-cli daemon
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target
+

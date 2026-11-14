@@ -1,0 +1,7 @@
+/target/
+/dropbar-mobile/build/
+/dropbar-mobile/.dart_tool/
+/dropbar-mobile/.flutter-plugins
+/dropbar-mobile/.flutter-plugins-dependencies
+/dropbar-mobile/.packages
+*.log
