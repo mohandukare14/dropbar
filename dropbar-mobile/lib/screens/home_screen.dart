@@ -281,7 +281,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildDropZone() {
-    return DragTarget<dynamic>(
+    return DragTarget<Object>(
       onAcceptWithDetails: (details) {
         // Accepts drops from other apps in split screen or file manager
       },

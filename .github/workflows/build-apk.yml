@@ -28,12 +28,14 @@ jobs:
       - name: Generate Android project files
         run: |
           cd dropbar-mobile
-          # Save custom AndroidManifest
           cp android/app/src/main/AndroidManifest.xml /tmp/AndroidManifest.xml
-          # Generate modern Flutter Gradle & wrapper structure
           flutter create . --org io.dropbar --project-name dropbar_mobile --platforms=android
-          # Restore custom manifest with permissions & intent filters
           cp /tmp/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          # Set compileSdk and targetSdk to 35 for modern Android compatibility
+          sed -i 's/compileSdk = .*/compileSdk = 35/g' android/app/build.gradle
+          sed -i 's/targetSdk = .*/targetSdk = 35/g' android/app/build.gradle
+          sed -i 's/compileSdkVersion .*/compileSdkVersion 35/g' android/app/build.gradle
+          sed -i 's/targetSdkVersion .*/targetSdkVersion 35/g' android/app/build.gradle
           flutter pub get
 
       - name: Build Release APK
