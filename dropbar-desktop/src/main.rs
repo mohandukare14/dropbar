@@ -375,8 +375,8 @@ fn build_ui(
     let window = ApplicationWindow::builder()
         .application(app)
         .title("DropBar")
-        .default_width(expanded_width)
-        .default_height(expanded_height)
+        .default_width(collapsed_width)
+        .default_height(collapsed_height)
         .resizable(true)
         .decorated(false)
         .build();
@@ -678,96 +678,100 @@ fn build_ui(
     let win_poll = window.clone();
     let state_poll = state.clone();
 
-    // Start with window hidden/opacity 0 until drag starts or files exist
-    win_poll.set_opacity(0.0);
+    // Start with window as logo pill at edge
+    win_poll.set_opacity(1.0);
     win_poll.set_size_request(collapsed_width, collapsed_height);
     win_poll.set_default_size(collapsed_width, collapsed_height);
     stack_poll.set_visible_child_name("logo");
-    dock_window_to_pos("right", sw_poll, collapsed_width, -2000);
+    dock_window_to_pos("right", sw_poll, collapsed_width, 180);
 
     glib::spawn_future_local(async move {
         let mut last_edge = "right";
-        let mut was_dragging = false;
+        let mut hide_timer = 0;
 
         loop {
-            tokio::time::sleep(tokio::time::Duration::from_millis(80)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
-            // Single fast query for both mouse drag state and cursor coordinates
-            let query = "local d=hl.is_key_down(272); local p=hl.get_cursor_pos(); local f=io.open('/tmp/dropbar_drag.txt', 'w'); f:write(tostring(d)..','..tostring(p.x)..','..tostring(p.y)); f:close()";
+            // Query cursor position from Hyprland
+            let query = "local p=hl.get_cursor_pos(); local f=io.open('/tmp/dropbar_cursor.txt', 'w'); f:write(tostring(p.x)..','..tostring(p.y)); f:close()";
             let _ = tokio::process::Command::new("hyprctl")
                 .args(["eval", query])
                 .output()
                 .await;
 
-            if let Ok(content) = tokio::fs::read_to_string("/tmp/dropbar_drag.txt").await {
+            if let Ok(content) = tokio::fs::read_to_string("/tmp/dropbar_cursor.txt").await {
                 let parts: Vec<&str> = content.trim().split(',').collect();
-                if parts.len() >= 3 {
-                    let is_dragging = parts[0] == "true";
-                    let cursor_x: f64 = parts[1].parse().unwrap_or(0.0);
-                    let cursor_y: f64 = parts[2].parse().unwrap_or(200.0);
+                if parts.len() >= 2 {
+                    let cursor_x: f64 = parts[0].parse().unwrap_or(0.0);
+                    let cursor_y: f64 = parts[1].parse().unwrap_or(200.0);
 
-                    if is_dragging {
-                        // User started dragging something anywhere on desktop! Make window visible immediately
-                        win_poll.set_opacity(1.0);
+                    let target_edge = if cursor_x < (sw_poll as f64 / 2.0) {
+                        "left"
+                    } else {
+                        "right"
+                    };
 
-                        // Position logo pill on the edge closest to cursor
-                        let target_edge = if cursor_x < (sw_poll as f64 / 2.0) {
-                            "left"
+                    let target_y = (cursor_y as i32 - 80).clamp(60, (sh_poll - collapsed_height - 30).max(60));
+                    let is_shelf_open = stack_poll.visible_child_name().as_deref() == Some("shelf");
+
+                    win_poll.set_opacity(1.0);
+
+                    if !is_shelf_open {
+                        // Check if cursor moved over the edge logo pill
+                        let on_logo = if target_edge == "left" {
+                            cursor_x <= (collapsed_width as f64 + 40.0) && (cursor_y as i32 - target_y).abs() <= (collapsed_height + 40)
                         } else {
-                            "right"
+                            cursor_x >= (sw_poll as f64 - collapsed_width as f64 - 40.0) && (cursor_y as i32 - target_y).abs() <= (collapsed_height + 40)
                         };
 
-                        let target_y = (cursor_y as i32 - 80).clamp(60, (sh_poll - collapsed_height - 30).max(60));
-
-                        let is_shelf_open = stack_poll.visible_child_name().as_deref() == Some("shelf");
-
-                        if !is_shelf_open {
-                            // Check if cursor moved over the edge logo pill
-                            let near_logo = if target_edge == "left" {
-                                cursor_x <= (collapsed_width as f64 + 40.0) && (cursor_y as i32 - target_y).abs() <= (collapsed_height + 40)
-                            } else {
-                                cursor_x >= (sw_poll as f64 - collapsed_width as f64 - 40.0) && (cursor_y as i32 - target_y).abs() <= (collapsed_height + 40)
-                            };
-
-                            if near_logo {
-                                // Cursor moved onto logo: MAXIMIZE to 1/5 screen ratio shelf!
-                                win_poll.set_size_request(expanded_width, expanded_height);
-                                win_poll.set_default_size(expanded_width, expanded_height);
-                                stack_poll.set_visible_child_name("shelf");
-                                let shelf_y = (target_y - 60).clamp(60, (sh_poll - expanded_height - 30).max(60));
-                                dock_window_to_pos(target_edge, sw_poll, expanded_width, shelf_y);
-                            } else {
-                                // Keep logo pill following cursor vertically along the edge
-                                win_poll.set_size_request(collapsed_width, collapsed_height);
-                                win_poll.set_default_size(collapsed_width, collapsed_height);
-                                stack_poll.set_visible_child_name("logo");
-                                dock_window_to_pos(target_edge, sw_poll, collapsed_width, target_y);
-                            }
+                        if on_logo {
+                            // Cursor moved onto logo: MAXIMIZE to 1/5 screen ratio shelf!
+                            win_poll.set_size_request(expanded_width, expanded_height);
+                            win_poll.set_default_size(expanded_width, expanded_height);
+                            stack_poll.set_visible_child_name("shelf");
+                            let shelf_y = (target_y - 60).clamp(60, (sh_poll - expanded_height - 30).max(60));
+                            dock_window_to_pos(target_edge, sw_poll, expanded_width, shelf_y);
+                        } else {
+                            // Follow cursor vertically along the edge
+                            win_poll.set_size_request(collapsed_width, collapsed_height);
+                            win_poll.set_default_size(collapsed_width, collapsed_height);
+                            stack_poll.set_visible_child_name("logo");
+                            dock_window_to_pos(target_edge, sw_poll, collapsed_width, target_y);
                         }
-
-                        last_edge = target_edge;
-                        *current_edge_poll.borrow_mut() = target_edge;
-                        was_dragging = true;
-                    } else if was_dragging {
-                        was_dragging = false;
-                        // Drag completed / released
+                    } else {
+                        // Shelf is open
                         let st = state_poll.borrow();
-                        let is_empty = st.stashed_files.is_empty();
+                        let has_files = !st.stashed_files.is_empty();
                         drop(st);
 
-                        // If shelf is empty, collapse back to compact logo pill after brief delay
-                        if is_empty {
-                            let stack_c = stack_poll.clone();
-                            let win_c = win_poll.clone();
-                            glib::timeout_add_local_once(std::time::Duration::from_millis(2500), move || {
-                                win_c.set_size_request(collapsed_width, collapsed_height);
-                                win_c.set_default_size(collapsed_width, collapsed_height);
-                                stack_c.set_visible_child_name("logo");
-                                win_c.set_opacity(0.0);
-                                dock_window_to_pos(last_edge, sw_poll, collapsed_width, -2000);
-                            });
+                        if !has_files {
+                            // If empty and cursor moved away from shelf:
+                            let away_from_shelf = if last_edge == "left" {
+                                cursor_x > (expanded_width as f64 + 100.0)
+                            } else {
+                                cursor_x < (sw_poll as f64 - expanded_width as f64 - 100.0)
+                            };
+
+                            if away_from_shelf {
+                                hide_timer += 1;
+                                // After ~2 seconds of being away with empty shelf:
+                                if hide_timer >= 40 {
+                                    hide_timer = 0;
+                                    win_poll.set_size_request(collapsed_width, collapsed_height);
+                                    win_poll.set_default_size(collapsed_width, collapsed_height);
+                                    stack_poll.set_visible_child_name("logo");
+                                    dock_window_to_pos(last_edge, sw_poll, collapsed_width, target_y);
+                                }
+                            } else {
+                                hide_timer = 0;
+                            }
+                        } else {
+                            hide_timer = 0;
                         }
                     }
+
+                    last_edge = target_edge;
+                    *current_edge_poll.borrow_mut() = target_edge;
                 }
             }
         }
@@ -969,6 +973,52 @@ fn build_ui(
     });
 
     window.present();
+}
+
+#[allow(dead_code)]
+fn check_is_dragging() -> bool {
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/run/user/1000".to_string());
+    let sig = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").unwrap_or_default();
+    let mut log_path = if !sig.is_empty() {
+        format!("{}/hypr/{}/hyprland.log", runtime_dir, sig)
+    } else {
+        String::new()
+    };
+
+    if log_path.is_empty() || !std::path::Path::new(&log_path).exists() {
+        if let Ok(entries) = std::fs::read_dir(format!("{}/hypr", runtime_dir)) {
+            for entry in entries.flatten() {
+                let candidate = entry.path().join("hyprland.log");
+                if candidate.exists() {
+                    log_path = candidate.to_string_lossy().to_string();
+                    break;
+                }
+            }
+        }
+    }
+
+    if log_path.is_empty() {
+        return false;
+    }
+
+    if let Ok(mut file) = std::fs::File::open(&log_path) {
+        use std::io::{Read, Seek, SeekFrom};
+        let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+        let seek_pos = len.saturating_sub(8192);
+        let _ = file.seek(SeekFrom::Start(seek_pos));
+        let mut buf = String::new();
+        let _ = file.read_to_string(&mut buf);
+        let mut pressed = false;
+        for line in buf.lines() {
+            if line.contains("BUTTON_EVENT_IN_AREA") || line.contains("TAP_STATE_1FGTAP_DRAGGING") {
+                pressed = true;
+            } else if line.contains("BUTTON_EVENT_UP") || line.contains("TAP_STATE_IDLE") || line.contains("TAP_EVENT_RELEASE") {
+                pressed = false;
+            }
+        }
+        return pressed;
+    }
+    false
 }
 
 fn dock_to_side(side: &str, screen_width: i32, window_width: i32) {
