@@ -681,8 +681,8 @@ fn build_ui(
     let win_poll = window.clone();
     let state_poll = state.clone();
 
-    // Start with window as logo pill at edge
-    win_poll.set_opacity(1.0);
+    // Start with window hidden (opacity 0.0) until drag action starts
+    win_poll.set_opacity(0.0);
     win_poll.set_size_request(collapsed_width, collapsed_height);
     win_poll.set_default_size(collapsed_width, collapsed_height);
     stack_poll.set_visible_child_name("logo");
@@ -693,7 +693,9 @@ fn build_ui(
     let mut last_view = "logo".to_string();
     let mut hide_timer = 0;
 
-    glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+    glib::timeout_add_local(std::time::Duration::from_millis(80), move || {
+        let is_dragging = check_is_dragging();
+
         if let Some(s) = hypr_socket_request("cursorpos") {
             let parts: Vec<&str> = s.trim().split(',').collect();
             if parts.len() == 2 {
@@ -710,36 +712,45 @@ fn build_ui(
                 let is_shelf_open = stack_poll.visible_child_name().as_deref() == Some("shelf");
 
                 if !is_shelf_open {
-                    // Check if cursor moved over the edge logo pill
-                    let on_logo = if target_edge == "left" {
-                        cursor_x <= (collapsed_width as f64 + 40.0) && (cursor_y as i32 - target_y).abs() <= (collapsed_height + 40)
-                    } else {
-                        cursor_x >= (sw_poll as f64 - collapsed_width as f64 - 40.0) && (cursor_y as i32 - target_y).abs() <= (collapsed_height + 40)
-                    };
+                    if is_dragging {
+                        // Drag action occurs (like double tapping and moving object)!
+                        // DropBar appears at end of screen!
+                        win_poll.set_opacity(1.0);
 
-                    if on_logo {
-                        // Cursor moved onto logo: MAXIMIZE to 1/5 screen ratio shelf!
-                        win_poll.set_size_request(expanded_width, expanded_height);
-                        win_poll.set_default_size(expanded_width, expanded_height);
-                        stack_poll.set_visible_child_name("shelf");
-                        let shelf_y = (target_y - 60).clamp(60, (sh_poll - expanded_height - 30).max(60));
-                        dock_window_to_pos(target_edge, sw_poll, expanded_width, shelf_y);
-                        last_y = shelf_y;
-                        last_view = "shelf".to_string();
-                    } else {
-                        // Only update position when edge changes or cursor moved by >= 25px
-                        let edge_changed = target_edge != last_edge;
-                        let y_moved = (target_y - last_y).abs() >= 25;
-                        let view_changed = last_view != "logo";
+                        // Check if cursor moved over the edge logo pill
+                        let on_logo = if target_edge == "left" {
+                            cursor_x <= (collapsed_width as f64 + 40.0) && (cursor_y as i32 - target_y).abs() <= (collapsed_height + 40)
+                        } else {
+                            cursor_x >= (sw_poll as f64 - collapsed_width as f64 - 40.0) && (cursor_y as i32 - target_y).abs() <= (collapsed_height + 40)
+                        };
 
-                        if edge_changed || y_moved || view_changed {
-                            win_poll.set_size_request(collapsed_width, collapsed_height);
-                            win_poll.set_default_size(collapsed_width, collapsed_height);
-                            stack_poll.set_visible_child_name("logo");
-                            dock_window_to_pos(target_edge, sw_poll, collapsed_width, target_y);
-                            last_y = target_y;
-                            last_view = "logo".to_string();
+                        if on_logo {
+                            // Dragged onto logo: MAXIMIZE to 1/5 screen ratio shelf!
+                            win_poll.set_size_request(expanded_width, expanded_height);
+                            win_poll.set_default_size(expanded_width, expanded_height);
+                            stack_poll.set_visible_child_name("shelf");
+                            let shelf_y = (target_y - 60).clamp(60, (sh_poll - expanded_height - 30).max(60));
+                            dock_window_to_pos(target_edge, sw_poll, expanded_width, shelf_y);
+                            last_y = shelf_y;
+                            last_view = "shelf".to_string();
+                        } else {
+                            // Only update position when edge changes or cursor moved by >= 20px
+                            let edge_changed = target_edge != last_edge;
+                            let y_moved = (target_y - last_y).abs() >= 20;
+                            let view_changed = last_view != "logo";
+
+                            if edge_changed || y_moved || view_changed {
+                                win_poll.set_size_request(collapsed_width, collapsed_height);
+                                win_poll.set_default_size(collapsed_width, collapsed_height);
+                                stack_poll.set_visible_child_name("logo");
+                                dock_window_to_pos(target_edge, sw_poll, collapsed_width, target_y);
+                                last_y = target_y;
+                                last_view = "logo".to_string();
+                            }
                         }
+                    } else {
+                        // DropBar shouldn't appear while normal cursor movement
+                        win_poll.set_opacity(0.0);
                     }
                 } else {
                     // Shelf is open
@@ -747,31 +758,25 @@ fn build_ui(
                     let has_files = !st.stashed_files.is_empty();
                     drop(st);
 
-                    if !has_files {
-                        // If empty and cursor moved away from shelf:
-                        let away_from_shelf = if last_edge == "left" {
-                            cursor_x > (expanded_width as f64 + 100.0)
-                        } else {
-                            cursor_x < (sw_poll as f64 - expanded_width as f64 - 100.0)
-                        };
-
-                        if away_from_shelf {
+                    if has_files {
+                        win_poll.set_opacity(1.0);
+                        hide_timer = 0;
+                    } else {
+                        if !is_dragging {
+                            // Drag finished without files: collapse and disappear
                             hide_timer += 1;
-                            // After ~2.5 seconds (25 ticks * 100ms) of being away with empty shelf:
-                            if hide_timer >= 25 {
+                            if hide_timer >= 12 { // ~1.0 second grace period
                                 hide_timer = 0;
                                 win_poll.set_size_request(collapsed_width, collapsed_height);
                                 win_poll.set_default_size(collapsed_width, collapsed_height);
                                 stack_poll.set_visible_child_name("logo");
-                                dock_window_to_pos(&last_edge, sw_poll, collapsed_width, target_y);
-                                last_y = target_y;
+                                win_poll.set_opacity(0.0);
                                 last_view = "logo".to_string();
                             }
                         } else {
                             hide_timer = 0;
+                            win_poll.set_opacity(1.0);
                         }
-                    } else {
-                        hide_timer = 0;
                     }
                 }
 
@@ -980,7 +985,6 @@ fn build_ui(
     window.present();
 }
 
-#[allow(dead_code)]
 fn check_is_dragging() -> bool {
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/run/user/1000".to_string());
     let sig = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").unwrap_or_default();
@@ -1009,19 +1013,28 @@ fn check_is_dragging() -> bool {
     if let Ok(mut file) = std::fs::File::open(&log_path) {
         use std::io::{Read, Seek, SeekFrom};
         let len = file.metadata().map(|m| m.len()).unwrap_or(0);
-        let seek_pos = len.saturating_sub(8192);
+        let seek_pos = len.saturating_sub(4096);
         let _ = file.seek(SeekFrom::Start(seek_pos));
-        let mut buf = String::new();
-        let _ = file.read_to_string(&mut buf);
-        let mut pressed = false;
+        let mut raw = Vec::new();
+        let _ = file.read_to_end(&mut raw);
+        let buf = String::from_utf8_lossy(&raw);
+        let mut is_drag = false;
         for line in buf.lines() {
-            if line.contains("BUTTON_EVENT_IN_AREA") || line.contains("TAP_STATE_1FGTAP_DRAGGING") {
-                pressed = true;
-            } else if line.contains("BUTTON_EVENT_UP") || line.contains("TAP_STATE_IDLE") || line.contains("TAP_EVENT_RELEASE") {
-                pressed = false;
+            if line.contains("TAP_STATE_1FGTAP_DRAGGING")
+                || line.contains("BUTTON_STATE_BOTTOM")
+                || line.contains("BUTTON_EVENT_IN_BOTTOM_L")
+            {
+                is_drag = true;
+            } else if line.contains("TAP_EVENT_RELEASE")
+                || line.contains("TAP_STATE_IDLE")
+                || line.contains("TAP_STATE_DEAD")
+                || line.contains("BUTTON_EVENT_UP")
+                || line.contains("BUTTON_STATE_NONE")
+            {
+                is_drag = false;
             }
         }
-        return pressed;
+        return is_drag;
     }
     false
 }
