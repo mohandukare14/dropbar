@@ -389,6 +389,8 @@ fn build_ui(
     }));
 
     let stack = Stack::new();
+    stack.set_hhomogeneous(false);
+    stack.set_vhomogeneous(false);
     stack.set_transition_type(StackTransitionType::SlideLeftRight);
     stack.set_transition_duration(180);
 
@@ -398,7 +400,8 @@ fn build_ui(
     let logo_pill_box = GtkBox::new(Orientation::Vertical, 4);
     logo_pill_box.add_css_class("serpantinum-logo-pill");
     logo_pill_box.set_valign(gtk4::Align::Center);
-    logo_pill_box.set_halign(gtk4::Align::Center);
+    logo_pill_box.set_halign(gtk4::Align::Fill);
+    logo_pill_box.set_hexpand(true);
     logo_pill_box.set_size_request(collapsed_width, collapsed_height);
 
     let logo_icon = Label::new(Some("⚡"));
@@ -1026,6 +1029,7 @@ fn dock_to_side(side: &str, screen_width: i32, window_width: i32) {
 }
 
 fn dock_window_to_pos(edge: &str, screen_width: i32, window_width: i32, y: i32) {
+    let window_height = if window_width <= 80 { 170 } else { 580 };
     let target_x = if edge == "left" {
         8
     } else {
@@ -1033,8 +1037,8 @@ fn dock_window_to_pos(edge: &str, screen_width: i32, window_width: i32, y: i32) 
     };
 
     let lua_code = format!(
-        "local wins = hl.get_windows(); for _, w in ipairs(wins) do if w.class == 'io.dropbar.desktop' then hl.dispatch(hl.dsp.window.move({{ x = {}, y = {}, window = w }})); break end end",
-        target_x, y
+        "local wins = hl.get_windows(); for _, w in ipairs(wins) do if w.class == 'io.dropbar.desktop' then hl.dispatch(hl.dsp.window.resize({{ x = {}, y = {}, window = w }})); hl.dispatch(hl.dsp.window.move({{ x = {}, y = {}, window = w }})); hl.dispatch(hl.dsp.window.bring_to_top({{ window = w }})); break end end",
+        window_width, window_height, target_x, y
     );
 
     let _ = std::process::Command::new("hyprctl")
