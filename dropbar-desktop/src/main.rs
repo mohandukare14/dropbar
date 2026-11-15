@@ -329,6 +329,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     app.connect_activate(move |application| {
+        if let Some(existing_win) = application.windows().first() {
+            existing_win.set_opacity(1.0);
+            existing_win.present();
+            dock_to_side("right", 1920, 1920 / 5);
+            return;
+        }
         build_ui(application, discovery_for_ui.clone(), rt_handle_for_ui.clone(), local_ip_for_ui.clone(), port);
     });
 
@@ -343,15 +349,19 @@ fn build_ui(
     local_ip: String,
     port: u16,
 ) {
-    // Determine 1/5 ratio of screen width
+    // Determine 1/5 ratio of screen width and screen height
     let mut screen_width = 1920;
+    let mut screen_height = 1080;
     if let Some(display) = gdk::Display::default() {
         let monitors = display.monitors();
         if let Some(first) = monitors.item(0) {
             if let Ok(monitor) = first.downcast::<gdk::Monitor>() {
-                let w = monitor.geometry().width();
-                if w > 0 {
-                    screen_width = w;
+                let geom = monitor.geometry();
+                if geom.width() > 0 {
+                    screen_width = geom.width();
+                }
+                if geom.height() > 0 {
+                    screen_height = geom.height();
                 }
             }
         }
@@ -540,9 +550,12 @@ fn build_ui(
     // Add both views to Stack
     stack.add_named(&logo_pill_box, Some("logo"));
     stack.add_named(&shelf_box, Some("shelf"));
-    stack.set_visible_child_name("shelf"); // default to 1/5 ratio shelf
+    stack.set_visible_child_name("logo"); // initial collapsed logo state
 
     window.set_child(Some(&stack));
+
+    // Shared edge state
+    let current_edge = Rc::new(RefCell::new("right")); // default right
 
     // ==========================================
     // INTERACTION 1: EXPAND / COLLAPSE LOGIC
@@ -550,18 +563,26 @@ fn build_ui(
     // 1. Clicking collapse button folds to edge logo pill
     let stack_for_coll = stack.clone();
     let win_for_coll = window.clone();
+    let current_edge_coll = current_edge.clone();
+    let sw_coll = screen_width;
     collapse_btn.connect_clicked(move |_| {
         win_for_coll.set_size_request(collapsed_width, collapsed_height);
+        win_for_coll.set_default_size(collapsed_width, collapsed_height);
         stack_for_coll.set_visible_child_name("logo");
+        dock_to_side(&*current_edge_coll.borrow(), sw_coll, collapsed_width);
     });
 
     // 2. Clicking the logo pill expands it to 1/5 ratio shelf
     let stack_for_expand = stack.clone();
     let win_for_expand = window.clone();
+    let current_edge_expand = current_edge.clone();
+    let sw_expand = screen_width;
     let click_gesture = GestureClick::new();
     click_gesture.connect_released(move |_, _, _, _| {
         win_for_expand.set_size_request(expanded_width, expanded_height);
+        win_for_expand.set_default_size(expanded_width, expanded_height);
         stack_for_expand.set_visible_child_name("shelf");
+        dock_to_side(&*current_edge_expand.borrow(), sw_expand, expanded_width);
     });
     logo_pill_box.add_controller(click_gesture);
 
@@ -575,9 +596,13 @@ fn build_ui(
 
     let stack_for_drag = stack.clone();
     let win_for_drag = window.clone();
+    let current_edge_drag = current_edge.clone();
+    let sw_drag = screen_width;
     logo_drop_target.connect_enter(move |_, _, _| {
         win_for_drag.set_size_request(expanded_width, expanded_height);
+        win_for_drag.set_default_size(expanded_width, expanded_height);
         stack_for_drag.set_visible_child_name("shelf");
+        dock_to_side(&*current_edge_drag.borrow(), sw_drag, expanded_width);
         gdk::DragAction::COPY
     });
     logo_drop_target.connect_motion(|_, _, _| gdk::DragAction::COPY);
@@ -588,10 +613,14 @@ fn build_ui(
     let rt_logo = rt.clone();
     let stack_logo_post = stack.clone();
     let win_logo_post = window.clone();
+    let current_edge_drop = current_edge.clone();
+    let sw_drop = screen_width;
 
     logo_drop_target.connect_drop(move |_, value, _, _| {
         win_logo_post.set_size_request(expanded_width, expanded_height);
+        win_logo_post.set_default_size(expanded_width, expanded_height);
         stack_logo_post.set_visible_child_name("shelf");
+        dock_to_side(&*current_edge_drop.borrow(), sw_drop, expanded_width);
 
         let files = extract_files_from_value(value);
         if files.is_empty() {
@@ -625,9 +654,8 @@ fn build_ui(
     logo_pill_box.add_controller(logo_drop_target);
 
     // ==========================================
-    // INTERACTION 2: DOCKING TO LEFT / RIGHT SIDE
+    // INTERACTION 2: DOCKING & DRAG-AWARE EDGE FOLLOWER
     // ==========================================
-    let current_edge = Rc::new(RefCell::new("right")); // default right
     let current_edge_click = current_edge.clone();
     let sw_click = screen_width;
     let ew_click = expanded_width;
@@ -636,41 +664,108 @@ fn build_ui(
         let mut edge = current_edge_click.borrow_mut();
         let new_edge = if *edge == "right" { "left" } else { "right" };
         *edge = new_edge;
-        dock_to_side(new_edge, sw_click as i32, ew_click as i32);
+        dock_to_side(new_edge, sw_click, ew_click);
     });
 
-    // Auto-edge detection: As cursor moves toward the left or right end, dock there!
+    // Realtime Drag Detection & Edge Follower
+    // When a drag starts (left mouse button held down anywhere on screen),
+    // the DropBar logo pill automatically appears on that side of the screen!
+    // When the cursor moves over the logo, it opens into the 1/5 screen ratio shelf.
     let current_edge_poll = current_edge.clone();
     let sw_poll = screen_width;
-    let ew_poll = expanded_width;
+    let sh_poll = screen_height;
+    let stack_poll = stack.clone();
+    let win_poll = window.clone();
+    let state_poll = state.clone();
+
+    // Start with window hidden/opacity 0 until drag starts or files exist
+    win_poll.set_opacity(0.0);
+    win_poll.set_size_request(collapsed_width, collapsed_height);
+    win_poll.set_default_size(collapsed_width, collapsed_height);
+    stack_poll.set_visible_child_name("logo");
+    dock_window_to_pos("right", sw_poll, collapsed_width, -2000);
 
     glib::spawn_future_local(async move {
-        let mut last_dock = "right";
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+        let mut last_edge = "right";
+        let mut was_dragging = false;
 
-            if let Ok(output) = tokio::process::Command::new("hyprctl")
-                .arg("cursorpos")
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_millis(80)).await;
+
+            // Single fast query for both mouse drag state and cursor coordinates
+            let query = "local d=hl.is_key_down(272); local p=hl.get_cursor_pos(); local f=io.open('/tmp/dropbar_drag.txt', 'w'); f:write(tostring(d)..','..tostring(p.x)..','..tostring(p.y)); f:close()";
+            let _ = tokio::process::Command::new("hyprctl")
+                .args(["eval", query])
                 .output()
-                .await
-            {
-                let text = String::from_utf8_lossy(&output.stdout);
-                if let Some((x_str, _y_str)) = text.trim().split_once(',') {
-                    if let Ok(x) = x_str.trim().parse::<i32>() {
-                        let target_side = if x < 200 {
-                            Some("left")
-                        } else if x > (sw_poll as i32 - 200) {
-                            Some("right")
+                .await;
+
+            if let Ok(content) = tokio::fs::read_to_string("/tmp/dropbar_drag.txt").await {
+                let parts: Vec<&str> = content.trim().split(',').collect();
+                if parts.len() >= 3 {
+                    let is_dragging = parts[0] == "true";
+                    let cursor_x: f64 = parts[1].parse().unwrap_or(0.0);
+                    let cursor_y: f64 = parts[2].parse().unwrap_or(200.0);
+
+                    if is_dragging {
+                        // User started dragging something anywhere on desktop! Make window visible immediately
+                        win_poll.set_opacity(1.0);
+
+                        // Position logo pill on the edge closest to cursor
+                        let target_edge = if cursor_x < (sw_poll as f64 / 2.0) {
+                            "left"
                         } else {
-                            None
+                            "right"
                         };
 
-                        if let Some(side) = target_side {
-                            if side != last_dock {
-                                last_dock = side;
-                                *current_edge_poll.borrow_mut() = side;
-                                dock_to_side(side, sw_poll as i32, ew_poll as i32);
+                        let target_y = (cursor_y as i32 - 80).clamp(60, (sh_poll - collapsed_height - 30).max(60));
+
+                        let is_shelf_open = stack_poll.visible_child_name().as_deref() == Some("shelf");
+
+                        if !is_shelf_open {
+                            // Check if cursor moved over the edge logo pill
+                            let near_logo = if target_edge == "left" {
+                                cursor_x <= (collapsed_width as f64 + 40.0) && (cursor_y as i32 - target_y).abs() <= (collapsed_height + 40)
+                            } else {
+                                cursor_x >= (sw_poll as f64 - collapsed_width as f64 - 40.0) && (cursor_y as i32 - target_y).abs() <= (collapsed_height + 40)
+                            };
+
+                            if near_logo {
+                                // Cursor moved onto logo: MAXIMIZE to 1/5 screen ratio shelf!
+                                win_poll.set_size_request(expanded_width, expanded_height);
+                                win_poll.set_default_size(expanded_width, expanded_height);
+                                stack_poll.set_visible_child_name("shelf");
+                                let shelf_y = (target_y - 60).clamp(60, (sh_poll - expanded_height - 30).max(60));
+                                dock_window_to_pos(target_edge, sw_poll, expanded_width, shelf_y);
+                            } else {
+                                // Keep logo pill following cursor vertically along the edge
+                                win_poll.set_size_request(collapsed_width, collapsed_height);
+                                win_poll.set_default_size(collapsed_width, collapsed_height);
+                                stack_poll.set_visible_child_name("logo");
+                                dock_window_to_pos(target_edge, sw_poll, collapsed_width, target_y);
                             }
+                        }
+
+                        last_edge = target_edge;
+                        *current_edge_poll.borrow_mut() = target_edge;
+                        was_dragging = true;
+                    } else if was_dragging {
+                        was_dragging = false;
+                        // Drag completed / released
+                        let st = state_poll.borrow();
+                        let is_empty = st.stashed_files.is_empty();
+                        drop(st);
+
+                        // If shelf is empty, collapse back to compact logo pill after brief delay
+                        if is_empty {
+                            let stack_c = stack_poll.clone();
+                            let win_c = win_poll.clone();
+                            glib::timeout_add_local_once(std::time::Duration::from_millis(2500), move || {
+                                win_c.set_size_request(collapsed_width, collapsed_height);
+                                win_c.set_default_size(collapsed_width, collapsed_height);
+                                stack_c.set_visible_child_name("logo");
+                                win_c.set_opacity(0.0);
+                                dock_window_to_pos(last_edge, sw_poll, collapsed_width, -2000);
+                            });
                         }
                     }
                 }
@@ -877,15 +972,19 @@ fn build_ui(
 }
 
 fn dock_to_side(side: &str, screen_width: i32, window_width: i32) {
-    let target_x = if side == "left" {
-        12
+    dock_window_to_pos(side, screen_width, window_width, 160);
+}
+
+fn dock_window_to_pos(edge: &str, screen_width: i32, window_width: i32, y: i32) {
+    let target_x = if edge == "left" {
+        8
     } else {
-        (screen_width - window_width - 12).max(10)
+        (screen_width - window_width - 8).max(10)
     };
 
     let lua_code = format!(
-        "local wins = hl.get_windows(); for _, w in ipairs(wins) do if w.class == 'io.dropbar.desktop' then hl.dispatch(hl.dsp.window.move({{ x = {}, y = 160, window = w }})); break end end",
-        target_x
+        "local wins = hl.get_windows(); for _, w in ipairs(wins) do if w.class == 'io.dropbar.desktop' then hl.dispatch(hl.dsp.window.move({{ x = {}, y = {}, window = w }})); break end end",
+        target_x, y
     );
 
     let _ = std::process::Command::new("hyprctl")
