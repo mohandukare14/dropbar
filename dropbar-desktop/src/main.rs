@@ -688,96 +688,98 @@ fn build_ui(
     stack_poll.set_visible_child_name("logo");
     dock_window_to_pos("right", sw_poll, collapsed_width, 180);
 
-    glib::spawn_future_local(async move {
-        let mut last_edge = "right";
-        let mut hide_timer = 0;
+    let mut last_edge = "right".to_string();
+    let mut last_y = 180;
+    let mut last_view = "logo".to_string();
+    let mut hide_timer = 0;
 
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+        if let Some(s) = hypr_socket_request("cursorpos") {
+            let parts: Vec<&str> = s.trim().split(',').collect();
+            if parts.len() == 2 {
+                let cursor_x: f64 = parts[0].trim().parse().unwrap_or(0.0);
+                let cursor_y: f64 = parts[1].trim().parse().unwrap_or(200.0);
 
-            // Query cursor position from Hyprland
-            let query = "local p=hl.get_cursor_pos(); local f=io.open('/tmp/dropbar_cursor.txt', 'w'); f:write(tostring(p.x)..','..tostring(p.y)); f:close()";
-            let _ = tokio::process::Command::new("hyprctl")
-                .args(["eval", query])
-                .output()
-                .await;
+                let target_edge = if cursor_x < (sw_poll as f64 / 2.0) {
+                    "left"
+                } else {
+                    "right"
+                };
 
-            if let Ok(content) = tokio::fs::read_to_string("/tmp/dropbar_cursor.txt").await {
-                let parts: Vec<&str> = content.trim().split(',').collect();
-                if parts.len() >= 2 {
-                    let cursor_x: f64 = parts[0].parse().unwrap_or(0.0);
-                    let cursor_y: f64 = parts[1].parse().unwrap_or(200.0);
+                let target_y = (cursor_y as i32 - 80).clamp(60, (sh_poll - collapsed_height - 30).max(60));
+                let is_shelf_open = stack_poll.visible_child_name().as_deref() == Some("shelf");
 
-                    let target_edge = if cursor_x < (sw_poll as f64 / 2.0) {
-                        "left"
+                if !is_shelf_open {
+                    // Check if cursor moved over the edge logo pill
+                    let on_logo = if target_edge == "left" {
+                        cursor_x <= (collapsed_width as f64 + 40.0) && (cursor_y as i32 - target_y).abs() <= (collapsed_height + 40)
                     } else {
-                        "right"
+                        cursor_x >= (sw_poll as f64 - collapsed_width as f64 - 40.0) && (cursor_y as i32 - target_y).abs() <= (collapsed_height + 40)
                     };
 
-                    let target_y = (cursor_y as i32 - 80).clamp(60, (sh_poll - collapsed_height - 30).max(60));
-                    let is_shelf_open = stack_poll.visible_child_name().as_deref() == Some("shelf");
+                    if on_logo {
+                        // Cursor moved onto logo: MAXIMIZE to 1/5 screen ratio shelf!
+                        win_poll.set_size_request(expanded_width, expanded_height);
+                        win_poll.set_default_size(expanded_width, expanded_height);
+                        stack_poll.set_visible_child_name("shelf");
+                        let shelf_y = (target_y - 60).clamp(60, (sh_poll - expanded_height - 30).max(60));
+                        dock_window_to_pos(target_edge, sw_poll, expanded_width, shelf_y);
+                        last_y = shelf_y;
+                        last_view = "shelf".to_string();
+                    } else {
+                        // Only update position when edge changes or cursor moved by >= 25px
+                        let edge_changed = target_edge != last_edge;
+                        let y_moved = (target_y - last_y).abs() >= 25;
+                        let view_changed = last_view != "logo";
 
-                    win_poll.set_opacity(1.0);
-
-                    if !is_shelf_open {
-                        // Check if cursor moved over the edge logo pill
-                        let on_logo = if target_edge == "left" {
-                            cursor_x <= (collapsed_width as f64 + 40.0) && (cursor_y as i32 - target_y).abs() <= (collapsed_height + 40)
-                        } else {
-                            cursor_x >= (sw_poll as f64 - collapsed_width as f64 - 40.0) && (cursor_y as i32 - target_y).abs() <= (collapsed_height + 40)
-                        };
-
-                        if on_logo {
-                            // Cursor moved onto logo: MAXIMIZE to 1/5 screen ratio shelf!
-                            win_poll.set_size_request(expanded_width, expanded_height);
-                            win_poll.set_default_size(expanded_width, expanded_height);
-                            stack_poll.set_visible_child_name("shelf");
-                            let shelf_y = (target_y - 60).clamp(60, (sh_poll - expanded_height - 30).max(60));
-                            dock_window_to_pos(target_edge, sw_poll, expanded_width, shelf_y);
-                        } else {
-                            // Follow cursor vertically along the edge
+                        if edge_changed || y_moved || view_changed {
                             win_poll.set_size_request(collapsed_width, collapsed_height);
                             win_poll.set_default_size(collapsed_width, collapsed_height);
                             stack_poll.set_visible_child_name("logo");
                             dock_window_to_pos(target_edge, sw_poll, collapsed_width, target_y);
+                            last_y = target_y;
+                            last_view = "logo".to_string();
                         }
-                    } else {
-                        // Shelf is open
-                        let st = state_poll.borrow();
-                        let has_files = !st.stashed_files.is_empty();
-                        drop(st);
+                    }
+                } else {
+                    // Shelf is open
+                    let st = state_poll.borrow();
+                    let has_files = !st.stashed_files.is_empty();
+                    drop(st);
 
-                        if !has_files {
-                            // If empty and cursor moved away from shelf:
-                            let away_from_shelf = if last_edge == "left" {
-                                cursor_x > (expanded_width as f64 + 100.0)
-                            } else {
-                                cursor_x < (sw_poll as f64 - expanded_width as f64 - 100.0)
-                            };
+                    if !has_files {
+                        // If empty and cursor moved away from shelf:
+                        let away_from_shelf = if last_edge == "left" {
+                            cursor_x > (expanded_width as f64 + 100.0)
+                        } else {
+                            cursor_x < (sw_poll as f64 - expanded_width as f64 - 100.0)
+                        };
 
-                            if away_from_shelf {
-                                hide_timer += 1;
-                                // After ~2 seconds of being away with empty shelf:
-                                if hide_timer >= 40 {
-                                    hide_timer = 0;
-                                    win_poll.set_size_request(collapsed_width, collapsed_height);
-                                    win_poll.set_default_size(collapsed_width, collapsed_height);
-                                    stack_poll.set_visible_child_name("logo");
-                                    dock_window_to_pos(last_edge, sw_poll, collapsed_width, target_y);
-                                }
-                            } else {
+                        if away_from_shelf {
+                            hide_timer += 1;
+                            // After ~2.5 seconds (25 ticks * 100ms) of being away with empty shelf:
+                            if hide_timer >= 25 {
                                 hide_timer = 0;
+                                win_poll.set_size_request(collapsed_width, collapsed_height);
+                                win_poll.set_default_size(collapsed_width, collapsed_height);
+                                stack_poll.set_visible_child_name("logo");
+                                dock_window_to_pos(&last_edge, sw_poll, collapsed_width, target_y);
+                                last_y = target_y;
+                                last_view = "logo".to_string();
                             }
                         } else {
                             hide_timer = 0;
                         }
+                    } else {
+                        hide_timer = 0;
                     }
-
-                    last_edge = target_edge;
-                    *current_edge_poll.borrow_mut() = target_edge;
                 }
+
+                last_edge = target_edge.to_string();
+                *current_edge_poll.borrow_mut() = target_edge;
             }
         }
+        glib::ControlFlow::Continue
     });
 
     // ==========================================
@@ -1024,6 +1026,23 @@ fn check_is_dragging() -> bool {
     false
 }
 
+fn hypr_socket_request(cmd: &str) -> Option<String> {
+    use std::io::{Read, Write};
+    use std::os::unix::net::UnixStream;
+
+    let runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/run/user/1000".to_string());
+    let sig = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").unwrap_or_default();
+    let sock_path = format!("{}/hypr/{}/.socket.sock", runtime, sig);
+
+    if let Ok(mut stream) = UnixStream::connect(&sock_path) {
+        let _ = stream.write_all(cmd.as_bytes());
+        let mut buf = Vec::new();
+        let _ = stream.read_to_end(&mut buf);
+        return Some(String::from_utf8_lossy(&buf).to_string());
+    }
+    None
+}
+
 fn dock_to_side(side: &str, screen_width: i32, window_width: i32) {
     dock_window_to_pos(side, screen_width, window_width, 160);
 }
@@ -1037,13 +1056,11 @@ fn dock_window_to_pos(edge: &str, screen_width: i32, window_width: i32, y: i32) 
     };
 
     let lua_code = format!(
-        "local wins = hl.get_windows(); for _, w in ipairs(wins) do if w.class == 'io.dropbar.desktop' then hl.dispatch(hl.dsp.window.resize({{ x = {}, y = {}, window = w }})); hl.dispatch(hl.dsp.window.move({{ x = {}, y = {}, window = w }})); hl.dispatch(hl.dsp.window.bring_to_top({{ window = w }})); break end end",
+        "eval local wins = hl.get_windows(); for _, w in ipairs(wins) do if w.class == 'io.dropbar.desktop' then hl.dispatch(hl.dsp.window.resize({{ x = {}, y = {}, window = w }})); hl.dispatch(hl.dsp.window.move({{ x = {}, y = {}, window = w }})); hl.dispatch(hl.dsp.window.bring_to_top({{ window = w }})); break end end",
         window_width, window_height, target_x, y
     );
 
-    let _ = std::process::Command::new("hyprctl")
-        .args(["eval", &lua_code])
-        .spawn();
+    let _ = hypr_socket_request(&lua_code);
 }
 
 fn extract_files_from_value(value: &glib::Value) -> Vec<PathBuf> {
