@@ -8,7 +8,7 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
     Application, ApplicationWindow, Box as GtkBox, Button, CheckButton, CssProvider, DropTarget,
-    Label, Orientation, ScrolledWindow, WindowHandle,
+    GestureClick, Label, Orientation, ScrolledWindow, Stack, StackTransitionType, WindowHandle,
 };
 use notify_rust::Notification;
 use std::cell::RefCell;
@@ -17,124 +17,227 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 const APP_ID: &str = "io.dropbar.desktop";
+
+// Serpantinum Onyx Preset Styling (from ~/.config/serpantinum/settings.json)
 const CSS_STYLE: &str = r#"
 window {
-    background-color: rgba(15, 20, 28, 0.96);
-    border: 1.5px solid #00FFCC;
-    border-radius: 16px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    background-color: transparent;
+    font-family: "Google Sans Flex Light", "Google Sans", "Inter", sans-serif;
+}
+
+/* Serpantinum Onyx Shelf Container (1/5 ratio of screen) */
+.serpantinum-shelf {
+    background-color: rgba(15, 15, 18, 0.95);
+    border: 1px solid rgba(203, 166, 247, 0.32);
+    border-radius: 28px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.75), 0 0 1px 1px rgba(203, 166, 247, 0.18);
+    padding: 14px;
+}
+
+/* Serpantinum Edge Logo Pill (Collapsed State on Screen Edge) */
+.serpantinum-logo-pill {
+    background: linear-gradient(180deg, rgba(29, 29, 34, 0.96), rgba(15, 15, 18, 0.96));
+    border: 1.5px solid rgba(203, 166, 247, 0.45);
+    border-radius: 30px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), 0 0 18px rgba(203, 166, 247, 0.35);
+    padding: 14px 6px;
+    transition: all 180ms ease;
+}
+
+.serpantinum-logo-pill:hover, .serpantinum-logo-pill.active {
+    border-color: #cba6f7;
+    background: linear-gradient(180deg, rgba(43, 43, 51, 0.98), rgba(29, 29, 34, 0.98));
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8), 0 0 24px rgba(203, 166, 247, 0.6);
+}
+
+.logo-icon {
+    font-size: 26px;
+    color: #cba6f7;
+    margin-bottom: 4px;
+}
+
+.logo-sub-icon {
+    font-size: 18px;
+    color: #89b4fa;
+    margin-top: 4px;
+}
+
+.logo-text-vertical {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    color: #cba6f7;
+    line-height: 1.1;
 }
 
 .drag-grip {
-    color: #475569;
-    font-size: 14px;
+    color: #5a5a6a;
+    font-size: 13px;
     font-weight: bold;
     padding: 2px 0 0 0;
 }
 
 .drag-grip:hover {
-    color: #00FFCC;
+    color: #cba6f7;
 }
 
 .drop-bar-header {
     background: transparent;
-    padding: 4px 8px;
+    padding: 2px 4px 6px 4px;
 }
 
-.title-label {
-    font-size: 13px;
-    font-weight: bold;
-    color: #00FFCC;
+.title-badge {
+    background: rgba(203, 166, 247, 0.12);
+    border: 1px solid rgba(203, 166, 247, 0.28);
+    border-radius: 12px;
+    padding: 4px 10px;
+    color: #cba6f7;
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.5px;
 }
 
-.status-label {
-    font-size: 11px;
-    color: #94A3B8;
-}
-
-.status-hotspot {
+.status-badge {
+    background: rgba(148, 226, 213, 0.12);
+    border: 1px solid rgba(148, 226, 213, 0.28);
+    border-radius: 12px;
+    padding: 4px 10px;
+    color: #94e2d5;
     font-size: 11px;
     font-weight: 600;
-    color: #10B981;
+}
+
+.status-searching {
+    background: rgba(249, 226, 175, 0.1);
+    border: 1px solid rgba(249, 226, 175, 0.25);
+    border-radius: 12px;
+    padding: 4px 10px;
+    color: #f9e2af;
+    font-size: 11px;
+}
+
+.collapse-btn {
+    background: rgba(43, 43, 51, 0.6);
+    border: 1px solid rgba(90, 90, 106, 0.4);
+    border-radius: 12px;
+    color: #d5d7dc;
+    padding: 4px 8px;
+    font-size: 13px;
+    font-weight: bold;
+}
+
+.collapse-btn:hover {
+    background: rgba(203, 166, 247, 0.25);
+    border-color: #cba6f7;
+    color: #ffffff;
 }
 
 .web-portal-banner {
-    background: rgba(0, 255, 204, 0.1);
-    border: 1px solid rgba(0, 255, 204, 0.25);
-    border-radius: 8px;
+    background: rgba(137, 180, 250, 0.08);
+    border: 1px solid rgba(137, 180, 250, 0.22);
+    border-radius: 14px;
     padding: 6px 10px;
 }
 
 .web-portal-text {
     font-size: 11px;
-    color: #00FFCC;
-    font-weight: 500;
+    color: #89b4fa;
+    font-weight: 600;
 }
 
 .drop-zone {
-    background: rgba(30, 41, 59, 0.6);
-    border: 2px dashed #334155;
-    border-radius: 12px;
-    padding: 16px 20px;
+    background: rgba(29, 29, 34, 0.65);
+    border: 2px dashed rgba(203, 166, 247, 0.35);
+    border-radius: 20px;
+    padding: 18px 14px;
     transition: all 180ms ease;
 }
 
 .drop-zone:hover, .drop-zone.active {
-    background: rgba(0, 255, 204, 0.18);
-    border-color: #00FFCC;
+    background: rgba(203, 166, 247, 0.14);
+    border-color: #cba6f7;
+    box-shadow: 0 0 20px rgba(203, 166, 247, 0.25);
 }
 
 .drop-zone-text {
     font-size: 13px;
-    font-weight: 600;
-    color: #F8FAFC;
+    font-weight: 700;
+    color: #eeeff2;
 }
 
 .drop-zone-sub {
     font-size: 11px;
-    color: #64748B;
+    color: #b8bbc2;
 }
 
 .item-row {
-    background: #1E293B;
-    border-radius: 8px;
+    background: #1d1d22;
+    border: 1px solid rgba(43, 43, 51, 0.7);
+    border-radius: 12px;
     padding: 6px 10px;
     margin-bottom: 4px;
 }
 
 .item-name {
     font-size: 12px;
-    color: #E2E8F0;
+    color: #eeeff2;
 }
 
 .send-btn {
-    background: #00FFCC;
-    color: #0F172A;
-    font-weight: bold;
-    border-radius: 8px;
+    background: linear-gradient(135deg, #cba6f7, #89b4fa);
+    color: #0f0f12;
+    font-weight: 700;
+    font-size: 13px;
+    border-radius: 14px;
     padding: 8px 16px;
     border: none;
+    box-shadow: 0 4px 16px rgba(203, 166, 247, 0.35);
 }
 
 .send-btn:hover {
-    background: #10B981;
+    background: linear-gradient(135deg, #d5b8ff, #9ac1ff);
+    box-shadow: 0 4px 22px rgba(203, 166, 247, 0.55);
 }
 
 .send-btn:disabled {
-    background: #1E293B;
-    color: #475569;
+    background: #2b2b33;
+    color: #5a5a6a;
+    box-shadow: none;
+}
+
+.serpantinum-btn {
+    background: #1d1d22;
+    border: 1px solid rgba(90, 90, 106, 0.4);
+    border-radius: 12px;
+    color: #d5d7dc;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.serpantinum-btn:hover {
+    background: #2b2b33;
+    border-color: #cba6f7;
+    color: #ffffff;
 }
 
 .clear-btn {
-    background: rgba(239, 68, 68, 0.15);
-    color: #EF4444;
-    border-radius: 8px;
-    border: 1px solid rgba(239, 68, 68, 0.4);
+    background: rgba(243, 139, 168, 0.12);
+    border: 1px solid rgba(243, 139, 168, 0.35);
+    border-radius: 12px;
+    color: #f38ba8;
     padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.clear-btn:hover {
+    background: rgba(243, 139, 168, 0.22);
+    border-color: #f38ba8;
 }
 
 .auto-beam-check {
-    color: #94A3B8;
+    color: #b8bbc2;
     font-size: 11px;
 }
 "#;
@@ -146,17 +249,17 @@ struct AppState {
     auto_beam: bool,
 }
 
-fn main() -> glib::ExitCode {
-    // 1. Initialize Tokio runtime on background thread
-    let rt = tokio::runtime::Runtime::new().expect("Failed to start Tokio runtime");
-    let rt_handle = rt.handle().clone();
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tracing_subscriber::fmt::init();
 
-    // 2. Start core services: Discovery + Server
+    let rt_handle = tokio::runtime::Handle::current();
     let local_ip = get_local_ip();
     let port = 53318;
+
     let local_device = DeviceInfo {
-        id: uuid::Uuid::new_v4().to_string(),
-        name: "Arch-Hyprland".to_string(),
+        id: format!("desktop_{}", uuid::Uuid::new_v4()),
+        name: "Arch-Hyprland (DropBar)".to_string(),
         device_type: DeviceType::ArchLinux,
         ip: local_ip.clone(),
         port,
@@ -167,7 +270,6 @@ fn main() -> glib::ExitCode {
     let discovery = DiscoveryService::new(local_device.clone(), DEFAULT_BEACON_PORT);
     let (server, mut payload_rx) = DropBarServer::new(local_device.clone(), download_dir.clone(), port);
 
-    // Spawn server & discovery in background runtime
     let discovery_clone = discovery.clone();
     rt_handle.spawn(async move {
         if let Err(e) = discovery_clone.start().await {
@@ -181,36 +283,32 @@ fn main() -> glib::ExitCode {
         }
     });
 
-    // 3. Listen for incoming drops from mobile and show desktop notification
-    let discovery_for_reg = discovery.clone();
+    // Notify upon received incoming payloads from P4/mobile
     rt_handle.spawn(async move {
         while let Ok(payload) = payload_rx.recv().await {
             match payload {
-                IncomingPayload::File { filename, size, sender, .. } => {
-                    let sender_name = sender.unwrap_or_else(|| "Mobile".to_string());
+                IncomingPayload::File { filename, sender, path, .. } => {
+                    let sender_display = sender.unwrap_or_else(|| "Mobile".to_string());
                     let _ = Notification::new()
-                        .summary(&format!("📥 DropBar: File from {}", sender_name))
-                        .body(&format!("Received '{}' ({:.1} KB)", filename, size as f64 / 1024.0))
-                        .icon("emblem-downloads")
-                        .appname("DropBar")
+                        .summary("📥 DropBar Received File")
+                        .body(&format!("'{}' received from {}", filename, sender_display))
+                        .icon("document-save")
+                        .show();
+                    let _ = open::that(path);
+                }
+                IncomingPayload::Text { text, sender, is_url } => {
+                    let summary = if is_url { "🔗 DropBar Received Link" } else { "📋 DropBar Received Text" };
+                    let _ = Notification::new()
+                        .summary(summary)
+                        .body(&format!("From {}: {}", sender, text))
+                        .icon("emblem-shared")
                         .show();
                 }
-                IncomingPayload::Text { text, sender, .. } => {
-                    let _ = Notification::new()
-                        .summary(&format!("📥 DropBar: Text from {}", sender))
-                        .body(&text)
-                        .icon("text-x-generic")
-                        .appname("DropBar")
-                        .show();
-                }
-                IncomingPayload::DeviceRegistered(device) => {
-                    discovery_for_reg.register_peer(device);
-                }
+                IncomingPayload::DeviceRegistered(_) => {}
             }
         }
     });
 
-    // 4. GTK4 Application
     let app = Application::builder()
         .application_id(APP_ID)
         .build();
@@ -235,7 +333,8 @@ fn main() -> glib::ExitCode {
         build_ui(application, discovery_for_ui.clone(), rt_handle_for_ui.clone(), local_ip_for_ui.clone(), port);
     });
 
-    app.run()
+    app.run();
+    Ok(())
 }
 
 fn build_ui(
@@ -245,11 +344,30 @@ fn build_ui(
     local_ip: String,
     port: u16,
 ) {
+    // Determine 1/5 ratio of screen width
+    let mut screen_width = 1920;
+    if let Some(display) = gdk::Display::default() {
+        let monitors = display.monitors();
+        if let Some(first) = monitors.item(0) {
+            if let Ok(monitor) = first.downcast::<gdk::Monitor>() {
+                let w = monitor.geometry().width();
+                if w > 0 {
+                    screen_width = w;
+                }
+            }
+        }
+    }
+
+    let expanded_width = (screen_width / 5).max(360);
+    let expanded_height = 580;
+    let collapsed_width = 54;
+    let collapsed_height = 170;
+
     let window = ApplicationWindow::builder()
         .application(app)
         .title("DropBar")
-        .default_width(460)
-        .default_height(320)
+        .default_width(expanded_width)
+        .default_height(expanded_height)
         .resizable(true)
         .decorated(false)
         .build();
@@ -261,66 +379,99 @@ fn build_ui(
         auto_beam: true,
     }));
 
-    let main_box = GtkBox::new(Orientation::Vertical, 8);
-    main_box.set_margin_start(14);
-    main_box.set_margin_end(14);
-    main_box.set_margin_top(6);
-    main_box.set_margin_bottom(12);
+    let stack = Stack::new();
+    stack.set_transition_type(StackTransitionType::SlideLeftRight);
+    stack.set_transition_duration(180);
 
-    // 1. Moveable Window Handle
+    // ==========================================
+    // 1. COLLAPSED VIEW: EDGE LOGO PILL
+    // ==========================================
+    let logo_pill_box = GtkBox::new(Orientation::Vertical, 4);
+    logo_pill_box.add_css_class("serpantinum-logo-pill");
+    logo_pill_box.set_valign(gtk4::Align::Center);
+    logo_pill_box.set_halign(gtk4::Align::Center);
+    logo_pill_box.set_size_request(collapsed_width, collapsed_height);
+
+    let logo_icon = Label::new(Some("⚡"));
+    logo_icon.add_css_class("logo-icon");
+
+    let logo_txt = Label::new(Some("D\nR\nO\nP"));
+    logo_txt.add_css_class("logo-text-vertical");
+    logo_txt.set_justify(gtk4::Justification::Center);
+
+    let logo_sub = Label::new(Some("📥"));
+    logo_sub.add_css_class("logo-sub-icon");
+
+    logo_pill_box.append(&logo_icon);
+    logo_pill_box.append(&logo_txt);
+    logo_pill_box.append(&logo_sub);
+
+    // ==========================================
+    // 2. EXPANDED VIEW: 1/5 RATIO SERPANTINUM SHELF
+    // ==========================================
+    let shelf_box = GtkBox::new(Orientation::Vertical, 8);
+    shelf_box.add_css_class("serpantinum-shelf");
+    shelf_box.set_size_request(expanded_width, expanded_height);
+
+    // Header row with grip, title badge, hotspot status, and collapse button
     let window_handle = WindowHandle::new();
-    let header_box = GtkBox::new(Orientation::Vertical, 2);
+    let header_box = GtkBox::new(Orientation::Vertical, 4);
     header_box.add_css_class("drop-bar-header");
 
     let grip_lbl = Label::new(Some("⠿ ⠿ ⠿"));
     grip_lbl.add_css_class("drag-grip");
-    grip_lbl.set_tooltip_text(Some("Click & drag to move DropBar anywhere on screen"));
+    grip_lbl.set_tooltip_text(Some("Drag handle to reposition DropBar"));
     header_box.append(&grip_lbl);
 
     let header_row = GtkBox::new(Orientation::Horizontal, 8);
-    let title_lbl = Label::new(Some("⚡ DropBar Shelf"));
-    title_lbl.add_css_class("title-label");
+    let title_lbl = Label::new(Some("⚡ DROPBAR"));
+    title_lbl.add_css_class("title-badge");
 
-    let status_lbl = Label::new(Some("🔍 Searching Hotspot / Wi-Fi..."));
-    status_lbl.add_css_class("status-label");
+    let status_lbl = Label::new(Some("🔍 Searching Hotspot..."));
+    status_lbl.add_css_class("status-searching");
     status_lbl.set_hexpand(true);
     status_lbl.set_halign(gtk4::Align::End);
 
+    let collapse_btn = Button::with_label("❯");
+    collapse_btn.add_css_class("collapse-btn");
+    collapse_btn.set_tooltip_text(Some("Collapse to edge logo"));
+
     header_row.append(&title_lbl);
     header_row.append(&status_lbl);
+    header_row.append(&collapse_btn);
     header_box.append(&header_row);
 
     window_handle.set_child(Some(&header_box));
-    main_box.append(&window_handle);
+    shelf_box.append(&window_handle);
 
-    // 2. Web Portal Link Banner (Zero install on P4)
+    // Mobile Web Portal Link Banner
     let web_box = GtkBox::new(Orientation::Horizontal, 6);
     web_box.add_css_class("web-portal-banner");
 
     let portal_url = format!("http://{}:{}", local_ip, port);
-    let web_lbl = Label::new(Some(&format!("📱 On P4, open browser: {}", portal_url)));
+    let web_lbl = Label::new(Some(&format!("📱 P4 Portal: {}", portal_url)));
     web_lbl.add_css_class("web-portal-text");
     web_lbl.set_hexpand(true);
     web_lbl.set_halign(gtk4::Align::Start);
 
-    let copy_link_btn = Button::with_label("Copy Link");
-    copy_link_btn.add_css_class("clear-btn");
+    let copy_link_btn = Button::with_label("Copy");
+    copy_link_btn.add_css_class("serpantinum-btn");
     let portal_url_clone = portal_url.clone();
     copy_link_btn.connect_clicked(move |_| {
         if let Some(display) = gdk::Display::default() {
             display.clipboard().set_text(&portal_url_clone);
             let _ = Notification::new()
-                .summary("📋 DropBar Link Copied")
-                .body(&format!("Open {} on your phone's browser", portal_url_clone))
+                .summary("📋 DropBar Portal Link Copied")
+                .body(&format!("Open {} in phone browser", portal_url_clone))
                 .show();
         }
     });
 
     web_box.append(&web_lbl);
     web_box.append(&copy_link_btn);
-    main_box.append(&web_box);
+    shelf_box.append(&web_box);
 
-    // 3. Drop Zone Target Area
+    // Main Drop Zone Area
     let drop_box = GtkBox::new(Orientation::Vertical, 4);
     drop_box.add_css_class("drop-zone");
     drop_box.set_halign(gtk4::Align::Fill);
@@ -328,23 +479,23 @@ fn build_ui(
     let drop_text = Label::new(Some("📥 Drag & Drop Files or Text Here"));
     drop_text.add_css_class("drop-zone-text");
 
-    let drop_sub = Label::new(Some("Auto-beams to connected Mobile Hotspot"));
+    let drop_sub = Label::new(Some("Auto-beams to connected Mobile Hotspot (P4)"));
     drop_sub.add_css_class("drop-zone-sub");
 
     drop_box.append(&drop_text);
     drop_box.append(&drop_sub);
 
-    // 4. File list container
+    // Stashed files queue list
     let file_list_box = GtkBox::new(Orientation::Vertical, 4);
     let scrolled = ScrolledWindow::builder()
         .hscrollbar_policy(gtk4::PolicyType::Never)
         .vscrollbar_policy(gtk4::PolicyType::Automatic)
-        .min_content_height(70)
-        .max_content_height(120)
+        .min_content_height(80)
+        .max_content_height(140)
         .child(&file_list_box)
         .build();
 
-    // 5. Options Bar: Auto-Beam Toggle
+    // Options Bar: Auto-Beam toggle
     let options_box = GtkBox::new(Orientation::Horizontal, 8);
     let auto_beam_check = CheckButton::with_label("Auto-beam on drop (Hotspot ready)");
     auto_beam_check.add_css_class("auto-beam-check");
@@ -354,21 +505,20 @@ fn build_ui(
     auto_beam_check.connect_toggled(move |btn| {
         state_check.borrow_mut().auto_beam = btn.is_active();
     });
-
     options_box.append(&auto_beam_check);
 
-    // 6. Action buttons bar
-    let action_box = GtkBox::new(Orientation::Horizontal, 8);
+    // Action Buttons Bar
+    let action_box = GtkBox::new(Orientation::Horizontal, 6);
     let clear_btn = Button::with_label("Clear");
     clear_btn.add_css_class("clear-btn");
 
     let add_files_btn = Button::with_label("➕ Add Files");
-    add_files_btn.add_css_class("clear-btn");
+    add_files_btn.add_css_class("serpantinum-btn");
 
     let open_downloads_btn = Button::with_label("📂 Downloads");
-    open_downloads_btn.add_css_class("clear-btn");
+    open_downloads_btn.add_css_class("serpantinum-btn");
 
-    let send_btn = Button::with_label("🚀 Beam to Mobile");
+    let send_btn = Button::with_label("🚀 Beam");
     send_btn.add_css_class("send-btn");
     send_btn.set_sensitive(false);
     send_btn.set_hexpand(true);
@@ -378,14 +528,101 @@ fn build_ui(
     action_box.append(&open_downloads_btn);
     action_box.append(&send_btn);
 
-    main_box.append(&drop_box);
-    main_box.append(&scrolled);
-    main_box.append(&options_box);
-    main_box.append(&action_box);
+    shelf_box.append(&drop_box);
+    shelf_box.append(&scrolled);
+    shelf_box.append(&options_box);
+    shelf_box.append(&action_box);
 
-    window.set_child(Some(&main_box));
+    // Add both views to Stack
+    stack.add_named(&logo_pill_box, Some("logo"));
+    stack.add_named(&shelf_box, Some("shelf"));
+    stack.set_visible_child_name("shelf"); // default to 1/5 ratio shelf
 
-    // Connect Drop Target with Automatic Transfer
+    window.set_child(Some(&stack));
+
+    // ==========================================
+    // INTERACTION 1: EXPAND / COLLAPSE LOGIC
+    // ==========================================
+    // 1. Clicking collapse button folds to edge logo pill
+    let stack_for_coll = stack.clone();
+    let win_for_coll = window.clone();
+    collapse_btn.connect_clicked(move |_| {
+        win_for_coll.set_size_request(collapsed_width, collapsed_height);
+        stack_for_coll.set_visible_child_name("logo");
+    });
+
+    // 2. Clicking the logo pill expands it to 1/5 ratio shelf
+    let stack_for_expand = stack.clone();
+    let win_for_expand = window.clone();
+    let click_gesture = GestureClick::new();
+    click_gesture.connect_released(move |_, _, _, _| {
+        win_for_expand.set_size_request(expanded_width, expanded_height);
+        stack_for_expand.set_visible_child_name("shelf");
+    });
+    logo_pill_box.add_controller(click_gesture);
+
+    // 3. Dragging over the logo pill immediately maximizes to 1/5 ratio shelf
+    let logo_drop_target = DropTarget::new(glib::types::Type::INVALID, gdk::DragAction::all());
+    logo_drop_target.set_types(&[
+        gdk::FileList::static_type(),
+        gio::File::static_type(),
+        glib::types::Type::STRING,
+    ]);
+
+    let stack_for_drag = stack.clone();
+    let win_for_drag = window.clone();
+    logo_drop_target.connect_enter(move |_, _, _| {
+        win_for_drag.set_size_request(expanded_width, expanded_height);
+        stack_for_drag.set_visible_child_name("shelf");
+        gdk::DragAction::COPY
+    });
+    logo_drop_target.connect_motion(|_, _, _| gdk::DragAction::COPY);
+
+    let state_logo_drop = state.clone();
+    let file_list_logo = file_list_box.clone();
+    let send_btn_logo = send_btn.clone();
+    let rt_logo = rt.clone();
+    let stack_logo_post = stack.clone();
+    let win_logo_post = window.clone();
+
+    logo_drop_target.connect_drop(move |_, value, _, _| {
+        win_logo_post.set_size_request(expanded_width, expanded_height);
+        stack_logo_post.set_visible_child_name("shelf");
+
+        let files = extract_files_from_value(value);
+        if files.is_empty() {
+            return false;
+        }
+
+        let mut st = state_logo_drop.borrow_mut();
+        let mut added = false;
+        for path in files {
+            if !st.stashed_files.contains(&path) {
+                st.stashed_files.push(path);
+                added = true;
+            }
+        }
+        if !added {
+            return false;
+        }
+
+        let should_auto_beam = st.auto_beam;
+        let target = st.selected_peer.clone();
+        drop(st);
+
+        refresh_file_list(&file_list_logo, &state_logo_drop);
+        if should_auto_beam {
+            if let Some(target_peer) = target {
+                trigger_beam(&send_btn_logo, &state_logo_drop, &file_list_logo, &rt_logo, target_peer);
+            }
+        }
+        true
+    });
+    logo_pill_box.add_controller(logo_drop_target);
+
+    // ==========================================
+    // INTERACTION 2: MAIN DROP ZONE TARGET
+    // ==========================================
     let drop_target = DropTarget::new(glib::types::Type::INVALID, gdk::DragAction::all());
     drop_target.set_types(&[
         gdk::FileList::static_type(),
@@ -402,39 +639,7 @@ fn build_ui(
     let rt_drop = rt.clone();
 
     drop_target.connect_drop(move |_, value, _, _| {
-        let mut files_to_add: Vec<PathBuf> = Vec::new();
-
-        if let Ok(file_list) = value.get::<gdk::FileList>() {
-            for file in file_list.files() {
-                if let Some(path) = file.path() {
-                    files_to_add.push(path);
-                }
-            }
-        } else if let Ok(file) = value.get::<gio::File>() {
-            if let Some(path) = file.path() {
-                files_to_add.push(path);
-            }
-        } else if let Ok(text) = value.get::<String>() {
-            for line in text.lines() {
-                let trimmed = line.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-                if trimmed.starts_with("file://") {
-                    if let Ok((path, _)) = glib::filename_from_uri(trimmed) {
-                        if path.exists() {
-                            files_to_add.push(path);
-                        }
-                    }
-                } else {
-                    let path = PathBuf::from(trimmed);
-                    if path.exists() {
-                        files_to_add.push(path);
-                    }
-                }
-            }
-        }
-
+        let files_to_add = extract_files_from_value(value);
         if files_to_add.is_empty() {
             return false;
         }
@@ -473,7 +678,7 @@ fn build_ui(
     });
     drop_box.add_controller(drop_target);
 
-    // Add Files Dialog Handler
+    // Add Files Dialog Handler (Nautilus Native File Chooser)
     let state_add = state.clone();
     let file_list_box_add = file_list_box.clone();
     let send_btn_add = send_btn.clone();
@@ -539,7 +744,7 @@ fn build_ui(
         refresh_file_list(&file_list_box_clear, &state_clear);
     });
 
-    // Open Downloads Handler (prioritizes Nautilus to avoid editor interception)
+    // Open Downloads Handler (Directly launches GNOME Files / Nautilus)
     open_downloads_btn.connect_clicked(|_| {
         let path = get_default_download_dir();
         let _ = std::fs::create_dir_all(&path);
@@ -596,21 +801,56 @@ fn build_ui(
 
             if let Some(first) = peers.first() {
                 st.selected_peer = Some(first.clone());
-                status_lbl_c.remove_css_class("status-label");
-                status_lbl_c.add_css_class("status-hotspot");
-                status_lbl_c.set_text(&format!("🟢 Ready: {} ({})", first.name, first.ip));
+                status_lbl_c.remove_css_class("status-searching");
+                status_lbl_c.add_css_class("status-badge");
+                status_lbl_c.set_text(&format!("🟢 {} ({})", first.name, first.ip));
                 send_btn_c.set_sensitive(true);
             } else {
                 st.selected_peer = None;
-                status_lbl_c.remove_css_class("status-hotspot");
-                status_lbl_c.add_css_class("status-label");
-                status_lbl_c.set_text("🟡 Hotspot connecting...");
+                status_lbl_c.remove_css_class("status-badge");
+                status_lbl_c.add_css_class("status-searching");
+                status_lbl_c.set_text("🔍 Hotspot...");
                 send_btn_c.set_sensitive(false);
             }
         }
     });
 
     window.present();
+}
+
+fn extract_files_from_value(value: &glib::Value) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    if let Ok(file_list) = value.get::<gdk::FileList>() {
+        for file in file_list.files() {
+            if let Some(path) = file.path() {
+                files.push(path);
+            }
+        }
+    } else if let Ok(file) = value.get::<gio::File>() {
+        if let Some(path) = file.path() {
+            files.push(path);
+        }
+    } else if let Ok(text) = value.get::<String>() {
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if trimmed.starts_with("file://") {
+                if let Ok((path, _)) = glib::filename_from_uri(trimmed) {
+                    if path.exists() {
+                        files.push(path);
+                    }
+                }
+            } else {
+                let path = PathBuf::from(trimmed);
+                if path.exists() {
+                    files.push(path);
+                }
+            }
+        }
+    }
+    files
 }
 
 fn trigger_beam(
@@ -670,7 +910,7 @@ fn refresh_file_list(container: &GtkBox, state: &Rc<RefCell<AppState>>) {
     let st = state.borrow();
     if st.stashed_files.is_empty() {
         let empty_lbl = Label::new(Some("Shelf is empty"));
-        empty_lbl.add_css_class("status-label");
+        empty_lbl.add_css_class("status-searching");
         empty_lbl.set_margin_top(6);
         container.append(&empty_lbl);
         return;

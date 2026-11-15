@@ -53,8 +53,21 @@ class _HomeScreenState extends State<HomeScreen> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("📥 Received: ${item.filename} from ${item.sender}"),
-          backgroundColor: const Color(0xFF00FFCC),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          content: Row(
+            children: [
+              const Icon(Icons.download_done, color: Colors.white, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  "Received: ${item.filename}",
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
         ),
       );
     });
@@ -158,31 +171,28 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Scaffold(
-      backgroundColor: const Color(0xFF0F141C),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF161E2E),
-        elevation: 0,
         title: Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(6),
+              padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: const Color(0xFF00FFCC).withOpacity(0.15),
-                borderRadius: BorderRadius.circular(8),
+                color: colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(Icons.swap_vert_circle, color: Color(0xFF00FFCC)),
+              child: Icon(Icons.near_me, color: colorScheme.onPrimaryContainer, size: 20),
             ),
             const SizedBox(width: 12),
-            const Text(
-              "DropBar",
-              style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.8),
-            ),
+            const Text("DropBar"),
           ],
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.add_link),
+            icon: const Icon(Icons.wifi_tethering),
             tooltip: "Manual IP Connect",
             onPressed: _showManualConnectDialog,
           ),
@@ -201,23 +211,23 @@ class _HomeScreenState extends State<HomeScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // Peer Selector Bar
-              _buildPeerSelector(peers),
+              _buildPeerSelector(peers, colorScheme),
 
               // Main Drop & Stash Area
               Expanded(
                 child: ListView(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   children: [
-                    _buildDropZone(),
+                    _buildDropZone(colorScheme),
                     const SizedBox(height: 16),
-                    _buildQuickTextBar(),
+                    _buildQuickTextBar(colorScheme),
                     if (_stashedFiles.isNotEmpty) ...[
                       const SizedBox(height: 20),
-                      _buildStashList(),
+                      _buildStashList(colorScheme),
                     ],
                     if (_receivedItems.isNotEmpty) ...[
                       const SizedBox(height: 24),
-                      _buildReceivedHistory(),
+                      _buildReceivedHistory(colorScheme),
                     ],
                   ],
                 ),
@@ -229,10 +239,14 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildPeerSelector(List<DeviceInfo> peers) {
+  Widget _buildPeerSelector(List<DeviceInfo> peers, ColorScheme colorScheme) {
     return Container(
-      color: const Color(0xFF161E2E),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Row(
         children: [
           Container(
@@ -240,29 +254,25 @@ class _HomeScreenState extends State<HomeScreen> {
             height: 10,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: peers.isNotEmpty ? const Color(0xFF00FFCC) : Colors.orangeAccent,
-              boxShadow: [
-                BoxShadow(
-                  color: (peers.isNotEmpty ? const Color(0xFF00FFCC) : Colors.orangeAccent)
-                      .withOpacity(0.5),
-                  blurRadius: 6,
-                )
-              ],
+              color: peers.isNotEmpty ? Colors.green : Colors.amber,
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 12),
           Expanded(
             child: peers.isEmpty
-                ? const Text(
+                ? Text(
                     "Searching for Arch Linux DropBar...",
-                    style: TextStyle(color: Colors.white70, fontSize: 13),
+                    style: TextStyle(
+                      color: colorScheme.onSurfaceVariant,
+                      fontSize: 13,
+                    ),
                   )
                 : DropdownButtonHideUnderline(
                     child: DropdownButton<DeviceInfo>(
                       value: _selectedPeer,
-                      dropdownColor: const Color(0xFF1E293B),
+                      dropdownColor: colorScheme.surfaceContainerHigh,
                       isDense: true,
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      style: TextStyle(color: colorScheme.onSurface, fontSize: 13),
                       items: peers.map((p) {
                         return DropdownMenuItem(
                           value: p,
@@ -280,50 +290,62 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildDropZone() {
+  Widget _buildDropZone(ColorScheme colorScheme) {
     return DragTarget<Object>(
       onAcceptWithDetails: (details) {
         // Accepts drops from other apps in split screen or file manager
       },
       builder: (context, candidateData, rejectedData) {
-        return GestureDetector(
-          onTap: _pickFiles,
-          child: Container(
-            height: 160,
-            decoration: BoxDecoration(
-              color: const Color(0xFF161E2E),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: candidateData.isNotEmpty
-                    ? const Color(0xFF00FFCC)
-                    : const Color(0xFF2E3A4E),
-                width: 2,
-                style: BorderStyle.solid,
-              ),
+        final isHovered = candidateData.isNotEmpty;
+        return Card(
+          elevation: 0,
+          color: isHovered
+              ? colorScheme.primaryContainer.withOpacity(0.5)
+              : colorScheme.surfaceContainer,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+            side: BorderSide(
+              color: isHovered ? colorScheme.primary : colorScheme.outlineVariant,
+              width: isHovered ? 2 : 1,
             ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.file_upload_outlined,
-                  size: 48,
-                  color: const Color(0xFF00FFCC).withOpacity(0.9),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  "Drop files here or Tap to browse",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(24),
+            onTap: _pickFiles,
+            child: Container(
+              height: 160,
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: colorScheme.primaryContainer,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.upload_file_rounded,
+                      size: 32,
+                      color: colorScheme.onPrimaryContainer,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  "Photos, PDFs, videos, or archives to send to Arch Linux",
-                  style: TextStyle(color: Colors.white38, fontSize: 11),
-                ),
-              ],
+                  const SizedBox(height: 12),
+                  Text(
+                    "Tap to browse or Drop files",
+                    style: TextStyle(
+                      color: colorScheme.onSurface,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    "Beam photos, documents & videos to Arch Linux",
+                    style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 12),
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -331,45 +353,45 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildQuickTextBar() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF161E2E),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF2E3A4E)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _textController,
-              style: const TextStyle(color: Colors.white, fontSize: 13),
-              decoration: const InputDecoration(
-                hintText: "Beam text snippet or URL...",
-                hintStyle: TextStyle(color: Colors.white38),
-                border: InputBorder.none,
-                isDense: true,
+  Widget _buildQuickTextBar(ColorScheme colorScheme) {
+    return Card(
+      elevation: 0,
+      color: colorScheme.surfaceContainer,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _textController,
+                style: TextStyle(color: colorScheme.onSurface, fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: "Beam text snippet or URL...",
+                  hintStyle: TextStyle(color: colorScheme.onSurfaceVariant),
+                  border: InputBorder.none,
+                  isDense: true,
+                ),
+                onSubmitted: (_) => _sendText(),
               ),
-              onSubmitted: (_) => _sendText(),
             ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.paste, color: Colors.white70, size: 20),
-            tooltip: "Paste & Beam",
-            onPressed: _pasteClipboard,
-          ),
-          IconButton(
-            icon: const Icon(Icons.send_rounded, color: Color(0xFF00FFCC), size: 20),
-            tooltip: "Send",
-            onPressed: _sendText,
-          ),
-        ],
+            IconButton(
+              icon: Icon(Icons.paste_rounded, color: colorScheme.onSurfaceVariant, size: 20),
+              tooltip: "Paste & Beam",
+              onPressed: _pasteClipboard,
+            ),
+            IconButton(
+              icon: Icon(Icons.arrow_upward_rounded, color: colorScheme.primary, size: 22),
+              tooltip: "Send",
+              onPressed: _sendText,
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildStashList() {
+  Widget _buildStashList(ColorScheme colorScheme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -377,59 +399,61 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              "STASHED FILES (${_stashedFiles.length})",
-              style: const TextStyle(
-                color: Colors.white70,
+              "QUEUE (${_stashedFiles.length})",
+              style: TextStyle(
+                color: colorScheme.onSurfaceVariant,
                 fontSize: 12,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.1,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.8,
               ),
             ),
             TextButton(
               onPressed: () => setState(() => _stashedFiles.clear()),
-              child: const Text("Clear", style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+              child: const Text("Clear all"),
             )
           ],
         ),
         ..._stashedFiles.map((file) {
           final name = file.uri.pathSegments.last;
-          return Container(
+          return Card(
+            elevation: 0,
             margin: const EdgeInsets.only(bottom: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1A2333),
-              borderRadius: BorderRadius.circular(8),
-            ),
+            color: colorScheme.surfaceContainerHigh,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             child: ListTile(
               dense: true,
-              leading: const Icon(Icons.insert_drive_file, color: Color(0xFF00FFCC)),
-              title: Text(name, style: const TextStyle(color: Colors.white, fontSize: 13)),
+              leading: Icon(Icons.insert_drive_file_outlined, color: colorScheme.primary),
+              title: Text(
+                name,
+                style: TextStyle(color: colorScheme.onSurface, fontSize: 13, fontWeight: FontWeight.w500),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
               trailing: IconButton(
-                icon: const Icon(Icons.close, size: 18, color: Colors.white38),
+                icon: Icon(Icons.close_rounded, size: 18, color: colorScheme.onSurfaceVariant),
                 onPressed: () => setState(() => _stashedFiles.remove(file)),
               ),
             ),
           );
         }),
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
         SizedBox(
           width: double.infinity,
-          height: 46,
-          child: ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00FFCC),
-              foregroundColor: Colors.black,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
+          height: 48,
+          child: FilledButton.icon(
             icon: _isTransferring
-                ? const SizedBox(
+                ? SizedBox(
                     width: 18,
                     height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: colorScheme.onPrimary,
+                    ),
                   )
-                : const Icon(Icons.cloud_upload),
+                : const Icon(Icons.send_rounded),
             label: Text(
-              _isTransferring ? "Beam in progress..." : "Beam to Arch Linux",
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              _isTransferring ? "Beaming in progress..." : "Beam to Arch Linux",
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             onPressed: _isTransferring ? null : _sendStashedFiles,
           ),
@@ -438,35 +462,49 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildReceivedHistory() {
+  Widget _buildReceivedHistory(ColorScheme colorScheme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           "RECEIVED FROM ARCH LINUX",
           style: TextStyle(
-            color: Colors.white70,
+            color: colorScheme.onSurfaceVariant,
             fontSize: 12,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.1,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.8,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         ..._receivedItems.map((item) {
-          return Container(
+          return Card(
+            elevation: 0,
             margin: const EdgeInsets.only(bottom: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
-              borderRadius: BorderRadius.circular(10),
-            ),
+            color: colorScheme.surfaceContainerHigh,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             child: ListTile(
-              leading: Icon(
-                item.isFile ? Icons.download_done : Icons.text_snippet,
-                color: Colors.greenAccent,
+              dense: true,
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: colorScheme.secondaryContainer,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  item.isFile ? Icons.file_present_rounded : Icons.notes_rounded,
+                  color: colorScheme.onSecondaryContainer,
+                  size: 20,
+                ),
               ),
               title: Text(
                 item.filename,
-                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  color: colorScheme.onSurface,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
               subtitle: Text(
                 item.isFile
@@ -474,18 +512,20 @@ class _HomeScreenState extends State<HomeScreen> {
                     : "${item.textContent} • ${item.sender}",
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white54, fontSize: 11),
+                style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 11),
               ),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (item.isFile)
                     IconButton(
-                      icon: const Icon(Icons.open_in_new, color: Colors.white70, size: 18),
+                      icon: Icon(Icons.open_in_new_rounded, size: 20, color: colorScheme.primary),
+                      tooltip: "Open",
                       onPressed: () => OpenFilex.open(item.path),
                     ),
                   IconButton(
-                    icon: const Icon(Icons.share, color: Colors.white70, size: 18),
+                    icon: Icon(Icons.share_outlined, size: 20, color: colorScheme.onSurfaceVariant),
+                    tooltip: "Share",
                     onPressed: () {
                       if (item.isFile) {
                         Share.shareXFiles([XFile(item.path)]);
@@ -505,17 +545,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _showManualConnectDialog() {
     final ipCtrl = TextEditingController();
+    final colorScheme = Theme.of(context).colorScheme;
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
-        title: const Text("Connect to Arch IP", style: TextStyle(color: Colors.white)),
+        backgroundColor: colorScheme.surfaceContainerHigh,
+        title: Text("Connect to Arch IP", style: TextStyle(color: colorScheme.onSurface)),
         content: TextField(
           controller: ipCtrl,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(
-            hintText: "e.g. 192.168.1.100",
-            hintStyle: TextStyle(color: Colors.white38),
+          style: TextStyle(color: colorScheme.onSurface),
+          decoration: InputDecoration(
+            hintText: "e.g. 10.13.230.209",
+            hintStyle: TextStyle(color: colorScheme.onSurfaceVariant.withOpacity(0.5)),
           ),
         ),
         actions: [
@@ -523,7 +565,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: const Text("Cancel"),
             onPressed: () => Navigator.pop(ctx),
           ),
-          ElevatedButton(
+          FilledButton(
             child: const Text("Connect"),
             onPressed: () {
               if (ipCtrl.text.isNotEmpty) {
