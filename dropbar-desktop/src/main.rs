@@ -18,46 +18,46 @@ use std::rc::Rc;
 
 const APP_ID: &str = "io.dropbar.desktop";
 
-// Serpantinum Onyx Preset Styling (from ~/.config/serpantinum/settings.json)
+// Hyprland Native Theme (matching ~/.config/hypr rounding=12 and Catppuccin Onyx)
 const CSS_STYLE: &str = r#"
 window {
     background-color: transparent;
-    font-family: "Google Sans Flex Light", "Google Sans", "Inter", sans-serif;
+    font-family: "JetBrains Mono", "Google Sans", "Inter", sans-serif;
 }
 
-/* Serpantinum Onyx Shelf Container (1/5 ratio of screen) */
+/* Hyprland Glass Shelf Container (1/5 ratio of screen, 12px rounding) */
 .serpantinum-shelf {
-    background-color: rgba(15, 15, 18, 0.95);
-    border: 1px solid rgba(203, 166, 247, 0.32);
-    border-radius: 28px;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.75), 0 0 1px 1px rgba(203, 166, 247, 0.18);
-    padding: 14px;
+    background-color: rgba(29, 29, 34, 0.95);
+    border: 1px solid rgba(180, 190, 254, 0.25);
+    border-radius: 12px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7);
+    padding: 12px;
 }
 
-/* Serpantinum Edge Logo Pill (Collapsed State on Screen Edge) */
+/* Hyprland Edge Logo Pill (Collapsed State) */
 .serpantinum-logo-pill {
-    background: linear-gradient(180deg, rgba(29, 29, 34, 0.96), rgba(15, 15, 18, 0.96));
-    border: 1.5px solid rgba(203, 166, 247, 0.45);
-    border-radius: 30px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), 0 0 18px rgba(203, 166, 247, 0.35);
-    padding: 14px 6px;
+    background: rgba(29, 29, 34, 0.96);
+    border: 1px solid rgba(180, 190, 254, 0.35);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 12px rgba(203, 166, 247, 0.25);
+    padding: 12px 6px;
     transition: all 180ms ease;
 }
 
 .serpantinum-logo-pill:hover, .serpantinum-logo-pill.active {
     border-color: #cba6f7;
-    background: linear-gradient(180deg, rgba(43, 43, 51, 0.98), rgba(29, 29, 34, 0.98));
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8), 0 0 24px rgba(203, 166, 247, 0.6);
+    background: rgba(43, 43, 51, 0.98);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8), 0 0 20px rgba(203, 166, 247, 0.5);
 }
 
 .logo-icon {
-    font-size: 26px;
+    font-size: 24px;
     color: #cba6f7;
     margin-bottom: 4px;
 }
 
 .logo-sub-icon {
-    font-size: 18px;
+    font-size: 16px;
     color: #89b4fa;
     margin-top: 4px;
 }
@@ -83,25 +83,25 @@ window {
 
 .drop-bar-header {
     background: transparent;
-    padding: 2px 4px 6px 4px;
+    padding: 0 2px 4px 2px;
 }
 
 .title-badge {
     background: rgba(203, 166, 247, 0.12);
     border: 1px solid rgba(203, 166, 247, 0.28);
-    border-radius: 12px;
-    padding: 4px 10px;
+    border-radius: 8px;
+    padding: 3px 8px;
     color: #cba6f7;
     font-weight: 700;
-    font-size: 12px;
+    font-size: 11px;
     letter-spacing: 0.5px;
 }
 
 .status-badge {
     background: rgba(148, 226, 213, 0.12);
     border: 1px solid rgba(148, 226, 213, 0.28);
-    border-radius: 12px;
-    padding: 4px 10px;
+    border-radius: 8px;
+    padding: 3px 8px;
     color: #94e2d5;
     font-size: 11px;
     font-weight: 600;
@@ -110,8 +110,8 @@ window {
 .status-searching {
     background: rgba(249, 226, 175, 0.1);
     border: 1px solid rgba(249, 226, 175, 0.25);
-    border-radius: 12px;
-    padding: 4px 10px;
+    border-radius: 8px;
+    padding: 3px 8px;
     color: #f9e2af;
     font-size: 11px;
 }
@@ -119,10 +119,10 @@ window {
 .collapse-btn {
     background: rgba(43, 43, 51, 0.6);
     border: 1px solid rgba(90, 90, 106, 0.4);
-    border-radius: 12px;
+    border-radius: 8px;
     color: #d5d7dc;
-    padding: 4px 8px;
-    font-size: 13px;
+    padding: 3px 8px;
+    font-size: 12px;
     font-weight: bold;
 }
 
@@ -135,7 +135,7 @@ window {
 .web-portal-banner {
     background: rgba(137, 180, 250, 0.08);
     border: 1px solid rgba(137, 180, 250, 0.22);
-    border-radius: 14px;
+    border-radius: 8px;
     padding: 6px 10px;
 }
 
@@ -147,39 +147,39 @@ window {
 
 .drop-zone {
     background: rgba(29, 29, 34, 0.65);
-    border: 2px dashed rgba(203, 166, 247, 0.35);
-    border-radius: 20px;
-    padding: 18px 14px;
+    border: 1.5px dashed rgba(203, 166, 247, 0.35);
+    border-radius: 12px;
+    padding: 16px 14px;
     transition: all 180ms ease;
 }
 
 .drop-zone:hover, .drop-zone.active {
     background: rgba(203, 166, 247, 0.14);
     border-color: #cba6f7;
-    box-shadow: 0 0 20px rgba(203, 166, 247, 0.25);
+    box-shadow: 0 0 16px rgba(203, 166, 247, 0.2);
 }
 
 .drop-zone-text {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 700;
     color: #eeeff2;
 }
 
 .drop-zone-sub {
-    font-size: 11px;
+    font-size: 10px;
     color: #b8bbc2;
 }
 
 .item-row {
-    background: #1d1d22;
-    border: 1px solid rgba(43, 43, 51, 0.7);
-    border-radius: 12px;
-    padding: 6px 10px;
+    background: #2b2b33;
+    border: 1px solid rgba(57, 57, 68, 0.7);
+    border-radius: 8px;
+    padding: 5px 10px;
     margin-bottom: 4px;
 }
 
 .item-name {
-    font-size: 12px;
+    font-size: 11px;
     color: #eeeff2;
 }
 
@@ -187,16 +187,15 @@ window {
     background: linear-gradient(135deg, #cba6f7, #89b4fa);
     color: #0f0f12;
     font-weight: 700;
-    font-size: 13px;
-    border-radius: 14px;
-    padding: 8px 16px;
+    font-size: 12px;
+    border-radius: 8px;
+    padding: 7px 14px;
     border: none;
-    box-shadow: 0 4px 16px rgba(203, 166, 247, 0.35);
+    box-shadow: 0 4px 14px rgba(203, 166, 247, 0.3);
 }
 
 .send-btn:hover {
     background: linear-gradient(135deg, #d5b8ff, #9ac1ff);
-    box-shadow: 0 4px 22px rgba(203, 166, 247, 0.55);
 }
 
 .send-btn:disabled {
@@ -206,17 +205,17 @@ window {
 }
 
 .serpantinum-btn {
-    background: #1d1d22;
+    background: #2b2b33;
     border: 1px solid rgba(90, 90, 106, 0.4);
-    border-radius: 12px;
+    border-radius: 8px;
     color: #d5d7dc;
-    padding: 6px 12px;
-    font-size: 12px;
+    padding: 5px 10px;
+    font-size: 11px;
     font-weight: 600;
 }
 
 .serpantinum-btn:hover {
-    background: #2b2b33;
+    background: #393944;
     border-color: #cba6f7;
     color: #ffffff;
 }
@@ -224,10 +223,10 @@ window {
 .clear-btn {
     background: rgba(243, 139, 168, 0.12);
     border: 1px solid rgba(243, 139, 168, 0.35);
-    border-radius: 12px;
+    border-radius: 8px;
     color: #f38ba8;
-    padding: 6px 12px;
-    font-size: 12px;
+    padding: 5px 10px;
+    font-size: 11px;
     font-weight: 600;
 }
 
@@ -238,7 +237,7 @@ window {
 
 .auto-beam-check {
     color: #b8bbc2;
-    font-size: 11px;
+    font-size: 10px;
 }
 "#;
 
@@ -413,7 +412,7 @@ fn build_ui(
     shelf_box.add_css_class("serpantinum-shelf");
     shelf_box.set_size_request(expanded_width, expanded_height);
 
-    // Header row with grip, title badge, hotspot status, and collapse button
+    // Header row with grip, title badge, hotspot status, edge flip, and collapse button
     let window_handle = WindowHandle::new();
     let header_box = GtkBox::new(Orientation::Vertical, 4);
     header_box.add_css_class("drop-bar-header");
@@ -423,7 +422,7 @@ fn build_ui(
     grip_lbl.set_tooltip_text(Some("Drag handle to reposition DropBar"));
     header_box.append(&grip_lbl);
 
-    let header_row = GtkBox::new(Orientation::Horizontal, 8);
+    let header_row = GtkBox::new(Orientation::Horizontal, 6);
     let title_lbl = Label::new(Some("⚡ DROPBAR"));
     title_lbl.add_css_class("title-badge");
 
@@ -432,12 +431,17 @@ fn build_ui(
     status_lbl.set_hexpand(true);
     status_lbl.set_halign(gtk4::Align::End);
 
+    let side_btn = Button::with_label("⇋ Side");
+    side_btn.add_css_class("serpantinum-btn");
+    side_btn.set_tooltip_text(Some("Dock to Left or Right edge"));
+
     let collapse_btn = Button::with_label("❯");
     collapse_btn.add_css_class("collapse-btn");
     collapse_btn.set_tooltip_text(Some("Collapse to edge logo"));
 
     header_row.append(&title_lbl);
     header_row.append(&status_lbl);
+    header_row.append(&side_btn);
     header_row.append(&collapse_btn);
     header_box.append(&header_row);
 
@@ -621,7 +625,61 @@ fn build_ui(
     logo_pill_box.add_controller(logo_drop_target);
 
     // ==========================================
-    // INTERACTION 2: MAIN DROP ZONE TARGET
+    // INTERACTION 2: DOCKING TO LEFT / RIGHT SIDE
+    // ==========================================
+    let current_edge = Rc::new(RefCell::new("right")); // default right
+    let current_edge_click = current_edge.clone();
+    let sw_click = screen_width;
+    let ew_click = expanded_width;
+
+    side_btn.connect_clicked(move |_| {
+        let mut edge = current_edge_click.borrow_mut();
+        let new_edge = if *edge == "right" { "left" } else { "right" };
+        *edge = new_edge;
+        dock_to_side(new_edge, sw_click as i32, ew_click as i32);
+    });
+
+    // Auto-edge detection: As cursor moves toward the left or right end, dock there!
+    let current_edge_poll = current_edge.clone();
+    let sw_poll = screen_width;
+    let ew_poll = expanded_width;
+
+    glib::spawn_future_local(async move {
+        let mut last_dock = "right";
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+
+            if let Ok(output) = tokio::process::Command::new("hyprctl")
+                .arg("cursorpos")
+                .output()
+                .await
+            {
+                let text = String::from_utf8_lossy(&output.stdout);
+                if let Some((x_str, _y_str)) = text.trim().split_once(',') {
+                    if let Ok(x) = x_str.trim().parse::<i32>() {
+                        let target_side = if x < 200 {
+                            Some("left")
+                        } else if x > (sw_poll as i32 - 200) {
+                            Some("right")
+                        } else {
+                            None
+                        };
+
+                        if let Some(side) = target_side {
+                            if side != last_dock {
+                                last_dock = side;
+                                *current_edge_poll.borrow_mut() = side;
+                                dock_to_side(side, sw_poll as i32, ew_poll as i32);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // ==========================================
+    // INTERACTION 3: MAIN DROP ZONE TARGET
     // ==========================================
     let drop_target = DropTarget::new(glib::types::Type::INVALID, gdk::DragAction::all());
     drop_target.set_types(&[
@@ -816,6 +874,23 @@ fn build_ui(
     });
 
     window.present();
+}
+
+fn dock_to_side(side: &str, screen_width: i32, window_width: i32) {
+    let target_x = if side == "left" {
+        12
+    } else {
+        (screen_width - window_width - 12).max(10)
+    };
+
+    let lua_code = format!(
+        "local wins = hl.get_windows(); for _, w in ipairs(wins) do if w.class == 'io.dropbar.desktop' then hl.dispatch(hl.dsp.window.move({{ x = {}, y = 160, window = w }})); break end end",
+        target_x
+    );
+
+    let _ = std::process::Command::new("hyprctl")
+        .args(["eval", &lua_code])
+        .spawn();
 }
 
 fn extract_files_from_value(value: &glib::Value) -> Vec<PathBuf> {
